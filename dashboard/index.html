@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Play insights</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="insights.js" defer></script>
+<script src="i18n.js" defer></script>
+<script src="charts.js" defer></script>
+<script src="names.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body class="booting">
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><path d="M8 22v-4M13 22v-8M18 22v-6M23 22V10"/></svg>
+      <div>
+        <h1 class="brand-title" data-t="appTitle">Play insights</h1>
+        <div class="brand-sub" data-t="appSub">School games</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="langBtn" type="button" class="btn-quiet">العربية</button>
+      <button id="themeBtn" type="button" class="btn-icon" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></svg>
+      </button>
+      <button id="signOutBtn" type="button" class="btn-quiet" data-t="signOut" hidden>Sign out</button>
+    </div>
+  </div>
+</header>
+<div id="demoBanner" class="banner" role="note" hidden>
+  <div class="banner-inner">
+    <strong data-t="demoTitle">Sample data</strong>
+    <span data-t="demoText"></span>
+    <a id="demoSignIn" href="./" data-t="demoSignIn">Sign in</a>
+  </div>
+</div>
+<main id="main">
+  <section id="signin" class="signin" aria-labelledby="signinTitle" hidden>
+    <form id="signinForm" class="signin-card" novalidate>
+      <h2 id="signinTitle" data-t="signInTitle">Sign in</h2>
+      <p class="signin-text" data-t="signInText"></p>
+      <input type="text" name="username" autocomplete="username" value="dashboard" hidden>
+      <label for="password" data-t="password">Dashboard password</label>
+      <div class="pw-row">
+        <input id="password" name="password" type="password" autocomplete="current-password" spellcheck="false" autocapitalize="off" dir="ltr" required>
+        <button type="button" id="pwToggle" class="btn-quiet" aria-pressed="false" aria-controls="password">Show</button>
+      </div>
+      <div id="signinError" class="error" role="alert" hidden></div>
+      <button id="signinBtn" type="submit" class="btn-primary" data-t="signInButton">Sign in</button>
+      <p class="hint" data-t="remember"></p>
+      <p class="hint"><a id="demoLink" href="?demo" data-t="demoLink">Sample data</a></p>
+    </form>
+  </section>
+  <div id="dash" hidden>
+    <div class="filters">
+      <div class="filters-inner">
+        <div id="periodFilter" class="filter"></div>
+        <div id="bandFilter" class="filter"></div>
+        <div id="status" class="status"></div>
+      </div>
+    </div>
+    <p id="rangeText" class="range"></p>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <section class="section" id="insights-section" aria-labelledby="insights-h">
+      <h2 id="insights-h" class="section-title" data-t="insightsTitle">What stands out</h2>
+      <div id="insights" class="card insights-card"></div>
+    </section>
+    <section class="section" id="numbers" aria-labelledby="numbers-h">
+      <h2 id="numbers-h" class="section-title" data-t="numbersTitle">Headline numbers</h2>
+      <div id="tiles" class="tiles"></div>
+    </section>
+    <div id="sections"></div>
+    <footer class="footer">
+      <p data-t="footer"></p>
+      <p data-t="utcNote"></p>
+    </footer>
+  </div>
+  <noscript><p class="note">This dashboard needs JavaScript. / تحتاج هذه اللوحة إلى JavaScript.</p></noscript>
+</main>
+</body>
+</html>

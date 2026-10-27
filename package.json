@@ -1,0 +1,25 @@
+{
+  "name": "school-games-telemetry",
+  "private": true,
+  "description": "Anonymous play statistics for the school games portal, with the insights dashboard: a Cloudflare Worker on a free D1 database, or Node on one SQLite file.",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "start": "node main.mjs",
+    "simulate": "node simulate.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.149.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ADMIN_TOKEN": {
+        "description": "The password for the insights dashboard. Make one up: at least 16 English letters or digits, with no spaces. Write it down: you type it to open the dashboard, and Cloudflare keeps it secret and cannot show it to you again (it can only be replaced)."
+      },
+      "DB": {
+        "description": "The database that keeps the anonymous play totals. Keep the suggested name; Cloudflare creates it for you."
+      }
+    }
+  }
+}

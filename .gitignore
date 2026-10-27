@@ -1,0 +1,11 @@
+# Local databases: the default DB_PATH is server/data/telemetry.db.
+data/
+*.db
+*.db-wal
+*.db-shm
+# Wrangler: installed tools, local D1 state and local secrets (the password).
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
