@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "school-games-telemetry",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-01",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "school-games-telemetry","database_id": "b4532494-b38c-4975-827b-f7da0727d139" }
+  ],
+  "assets": { "directory": "./dashboard", "binding": "ASSETS" },
+  "triggers": { "crons": ["23 3 * * *", "*/5 * * * *"] },
+  "vars": {
+    "ALLOWED_ORIGINS": "https://farmercarry.github.io",
+    "RETENTION_DAYS": "180"
+  },
+  "observability": { "enabled": false }
+}
