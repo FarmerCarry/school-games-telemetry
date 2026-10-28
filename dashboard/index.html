@@ -10,9 +10,20 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="insights.js" defer></script>
+<script src="research.js" defer></script>
 <script src="i18n.js" defer></script>
 <script src="charts.js" defer></script>
 <script src="names.js" defer></script>
+<script src="scores.js" defer></script>
+<script src="dictionary.js" defer></script>
+<script src="zip.js" defer></script>
+<script src="export.js" defer></script>
+<script src="students.js" defer></script>
+<script src="games.js" defer></script>
+<script src="habits.js" defer></script>
+<script src="learning.js" defer></script>
+<script src="pcs.js" defer></script>
+<script src="data.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body class="booting">
@@ -59,27 +70,23 @@
     </form>
   </section>
   <div id="dash" hidden>
+    <div id="clockLine" class="clock-line" hidden></div>
+    <nav id="tabs" class="tabs" aria-label="Dashboard pages"></nav>
     <div class="filters">
       <div class="filters-inner">
         <div id="periodFilter" class="filter"></div>
+        <div id="customRange" class="filter custom-range" hidden></div>
         <div id="bandFilter" class="filter"></div>
+        <div id="pickFilter" class="filter pick-filter" hidden></div>
         <div id="status" class="status"></div>
       </div>
     </div>
     <p id="rangeText" class="range"></p>
     <div id="notice" class="notice" role="status" hidden></div>
-    <section class="section" id="insights-section" aria-labelledby="insights-h">
-      <h2 id="insights-h" class="section-title" data-t="insightsTitle">What stands out</h2>
-      <div id="insights" class="card insights-card"></div>
-    </section>
-    <section class="section" id="numbers" aria-labelledby="numbers-h">
-      <h2 id="numbers-h" class="section-title" data-t="numbersTitle">Headline numbers</h2>
-      <div id="tiles" class="tiles"></div>
-    </section>
-    <div id="sections"></div>
+    <div id="view"></div>
     <footer class="footer">
       <p data-t="footer"></p>
-      <p data-t="utcNote"></p>
+      <div id="footNotes"></div>
     </footer>
   </div>
   <noscript><p class="note">This dashboard needs JavaScript. / تحتاج هذه اللوحة إلى JavaScript.</p></noscript>

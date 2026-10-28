@@ -1,13 +1,21 @@
 // The ingest server's HTTP rules as a Fetch-API handler (Request -> Response), shared by
 // the Cloudflare Worker (worker.mjs) and the Node host (app.mjs): routing, CORS, the soft
-// per-client token bucket, body limits, admin authentication and status codes. Paths
-// outside /v1/ go to the host's static files (the dashboard). No IP, header or request
-// body is ever stored or logged; the client key (an address) is only a key of the
-// in-memory token bucket.
-import { validateBatch } from './schema.mjs';
-import { utcDay } from './store.mjs';
+// per-client token bucket, body limits, admin authentication, the admin router and status
+// codes. Paths outside /v1/ go to the host's static files (the dashboard). No IP, header or
+// request body is ever stored or logged; the client key (an address) is only a key of the
+// in-memory token bucket. The request that upgrades the database does only that and is
+// answered 503 with Retry-After (the portal sends the batch again). Admin reads answer 429
+// once the day's free reading allowance is nearly used, and the owner's actions once the
+// day's writes are (store.mjs, guard).
+import { JsonText, SENT } from './admin.mjs';
+import { zoneName } from './clock.mjs';
+import { FILES } from './export.mjs';
+import { METRICS } from './rollups.mjs';
+import { U_RE, WIRES, isSlug, validateBatch } from './schema.mjs';
+import { SCHEMA_VERSION, utcDay } from './store.mjs';
 
 export const MAX_BODY = 64 * 1024;
+export const MAX_ADMIN_BODY = 4 * 1024;
 export const MAX_RANGE_DAYS = 366;
 const DAY_MS = 86400000;
 const BUCKET_CAP = 100000;
@@ -15,9 +23,20 @@ const BUCKET_CAP = 100000;
 const KPI_BANDS = { all: null, '6-7': '6-7', '8-9': '8-9', '10-11': '10-11', unknown: '' };
 const encoder = new TextEncoder();
 
+// An answer other than 2xx: { error: message, ...more }.
 export class HttpError extends Error {
-  constructor(status, message, headers = {}) { super(message); this.status = status; this.headers = headers; }
+  constructor(status, message, headers = {}, more = {}) { super(message); this.status = status; this.headers = headers; this.more = more; }
 }
+// The admin routes: each method they take (HEAD goes with GET) and the guard it passes:
+// read (an admin read: 429 once today's reads pass 4.2 million), export (an export page:
+// 3.5 million), write (an action that writes: 90,000 writes) or none (live and settings).
+const ADMIN = {
+  kpis: { GET: 'read' }, live: { GET: null }, settings: { GET: null, POST: null },
+  students: { GET: 'read' }, student: { GET: 'read' }, game: { GET: 'read' }, stats: { GET: 'read' }, cohorts: { GET: 'read' },
+  pcs: { GET: 'read' }, export: { GET: 'export' },
+  forget: { POST: 'write' }, link: { POST: 'write', DELETE: 'write' }, rebuild: { POST: 'write' }
+};
+const SETTINGS_FIELDS = new Set(['tz', 'source', 'weekStart', 'keepDays']);
 
 // Printable ASCII only: header bytes are read as latin1, so any other character could never match.
 export const isAdminToken = token => typeof token === 'string' && /^[\x21-\x7e]{16,}$/.test(token);
@@ -95,9 +114,9 @@ async function readBody(request, limit) {
 const validDay = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
   Number.isFinite(Date.parse(v + 'T00:00:00Z')) && utcDay(Date.parse(v + 'T00:00:00Z')) === v;
 
-// from/to default to the 30 days ending today (UTC).
-function kpiParams(query, now) {
-  const to = query.get('to') ?? utcDay(now);
+// from/to default to the 30 days ending today (the school's day when the store knows it).
+function kpiParams(query, today) {
+  const to = query.get('to') ?? today;
   if (!validDay(to)) throw new HttpError(400, 'to');
   const from = query.get('from') ?? utcDay(Date.parse(to + 'T00:00:00Z') - 29 * DAY_MS);
   if (!validDay(from) || from > to) throw new HttpError(400, 'from');
@@ -105,6 +124,66 @@ function kpiParams(query, now) {
   const band = query.get('band') ?? 'all';
   if (!Object.hasOwn(KPI_BANDS, band)) throw new HttpError(400, 'band');
   return { from, to, band: KPI_BANDS[band] };
+}
+
+// A query parameter that must match: a student code, a game, the r_stat metrics (a
+// comma-separated subset, answered in the contract's order) or an export file.
+function code(query, name) {
+  const value = query.get(name);
+  if (typeof value !== 'string' || !U_RE.test(value)) throw new HttpError(400, name);
+  return value;
+}
+function slugParam(query, name, optional = false) {
+  const value = query.get(name);
+  if (value === null && optional) return null;
+  if (!isSlug(value)) throw new HttpError(400, name);
+  return value;
+}
+function metricsParam(query) {
+  const list = (query.get('metrics') ?? '').split(',');
+  if (!list.every(metric => METRICS.includes(metric))) throw new HttpError(400, 'metrics');
+  return METRICS.filter(metric => list.includes(metric));
+}
+// The JSON body of an action: an object with exactly these fields.
+function fields(body, names) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'body');
+  const field = Object.keys(body).find(key => !names.includes(key));
+  if (field !== undefined) throw new HttpError(400, 'field');
+  return body;
+}
+function bodyCode(body, name) {
+  if (typeof body[name] !== 'string' || !U_RE.test(body[name])) throw new HttpError(400, name);
+  return body[name];
+}
+
+// An export page: its CSV lines (each ending in a line break, as SQL joined them), how many,
+// and the next page's cursor.
+class CsvPage {
+  constructor(text, rows, next) { this.text = text; this.rows = rows; this.next = next; }
+}
+
+// POST /v1/admin/settings: { tz?, source?: 'dashboard', weekStart?: 'sun' | 'mon',
+// keepDays?: 400 | 760 }, nothing else.
+function settingsBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new HttpError(400, 'body');
+  const field = Object.keys(body).find(key => !SETTINGS_FIELDS.has(key));
+  if (field !== undefined) throw new HttpError(400, 'field');
+  const { tz, source, weekStart, keepDays } = body;
+  if (tz !== undefined && !zoneName(tz)) throw new HttpError(400, 'tz');
+  if (source !== undefined && (source !== 'dashboard' || tz === undefined)) throw new HttpError(400, 'source');
+  if (weekStart !== undefined && weekStart !== 'sun' && weekStart !== 'mon') throw new HttpError(400, 'weekStart');
+  if (keepDays !== undefined && keepDays !== 400 && keepDays !== 760) throw new HttpError(400, 'keepDays');
+  return { tz: tz === undefined ? tz : zoneName(tz), source, weekStart, keepDays };
+}
+
+// An answer as JSON; one that is JSON text already (admin.mjs JsonText, or SENT), or a field
+// that is, is written as it is.
+export function serialize(body) {
+  if (body instanceof JsonText) return body.text;
+  if (body[SENT]) return body[SENT];
+  if (!Object.values(body).some(value => value instanceof JsonText)) return JSON.stringify(body);
+  return '{' + Object.entries(body).filter(([, value]) => value !== undefined)
+    .map(([key, value]) => JSON.stringify(key) + ':' + (value instanceof JsonText ? value.text : JSON.stringify(value))).join(',') + '}';
 }
 
 // Options: store (store.mjs), allowedOrigins, adminToken ('' turns the admin endpoints
@@ -121,6 +200,12 @@ export function createHandler(options) {
     return !!match && sameDigest(await sha256(match[1]), await token);
   }
 
+  // The database is created or upgraded by the first request that needs it, one version
+  // step at a time; that request is answered 503 and does nothing else.
+  async function ready(t) {
+    if (await store.setup?.(t) === 'migrated') throw new HttpError(503, 'updating', { 'Retry-After': '2' });
+  }
+
   async function batch(request) {
     const origin = request.headers.get('origin');
     // Browsers always send Origin; a page from another site must not add rows.
@@ -133,28 +218,91 @@ export function createHandler(options) {
     try { body = JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(raw)); } catch { throw new HttpError(400, 'json'); }
     const valid = validateBatch(body);
     if (!valid) throw new HttpError(400, 'envelope');
-    // A repeated batch id is answered like a new one, so the client drops it.
-    await store.ingest(valid.envelope, valid.events, now());
+    const t = now();
+    await ready(t);
+    // A repeated batch is answered like a new one, so the client drops it.
+    await store.ingest(valid, t);
+    // How long the PCs should wait between batches, by today's writes (the free plan's limit).
+    return store.batchEvery?.(t);
   }
 
-  async function admin(request, kind, query) {
+  // A JSON body of at most MAX_ADMIN_BODY bytes, sent as application/json (optional: an
+  // empty body is no body).
+  async function jsonBody(request, optional = false) {
+    const type = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    const raw = await readBody(request, MAX_ADMIN_BODY);
+    if (optional && !raw.byteLength) return null;
+    if (type !== 'application/json') throw new HttpError(415, 'content type');
+    try { return JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(raw)); } catch { throw new HttpError(400, 'json'); }
+  }
+
+  // What each admin route and method does, with its parameters validated first.
+  function work(name, method, query, body, t) {
+    const period = () => kpiParams(query, store.today?.(t) ?? utcDay(t));
+    switch (name + ' ' + method) {
+      case 'kpis GET': return store.kpis(period(), t);
+      case 'live GET': return store.live(t);
+      case 'settings GET': return store.settings(t);
+      case 'settings POST': return store.updateSettings(settingsBody(body), t);
+      case 'students GET': {
+        // A later page starts after the code `after` (its answer's next).
+        const after = query.has('after') ? code(query, 'after') : null;
+        return store.students({ ...period(), after }, t);
+      }
+      case 'student GET': { const u = code(query, 'u'); return store.student({ ...period(), u }, t); }
+      case 'game GET': { const slug = slugParam(query, 'slug'); return store.game({ ...period(), slug }, t); }
+      case 'stats GET': { const metrics = metricsParam(query), slug = slugParam(query, 'slug', true); return store.stats({ ...period(), metrics, slug }, t); }
+      case 'cohorts GET': return store.cohorts(period(), t);
+      case 'pcs GET': { const { from, to } = period(); return store.pcs({ from, to }, t); }
+      case 'export GET': {
+        const file = query.get('file');
+        if (!FILES.includes(file)) throw new HttpError(400, 'file');
+        const { from, to } = period();
+        return store.exportPage({ file, from, to, after: query.get('after') }, t).then(page => page.error ? page : new CsvPage(page.text, page.rows, page.next));
+      }
+      case 'forget POST': return store.forget({ u: bodyCode(fields(body, ['u']), 'u') }, t);
+      case 'link POST': { const b = fields(body, ['u', 'to']); return store.link({ u: bodyCode(b, 'u'), to: bodyCode(b, 'to') }, t); }
+      case 'link DELETE': {
+        // The code from the query (DELETE /v1/admin/link?u=), or from a JSON body { u }.
+        if (query.has('u') || body === null) return store.unlink({ u: code(query, 'u') }, t);
+        return store.unlink({ u: bodyCode(fields(body, ['u']), 'u') }, t);
+      }
+      case 'rebuild POST': fields(body, []); return store.rebuild(t);
+    }
+  }
+
+  async function admin(request, name, query) {
+    const route = ADMIN[name];
     if (!token) throw new HttpError(404, 'admin password not set');
-    if (request.method !== 'GET' && request.method !== 'HEAD') throw new HttpError(405, 'method', { Allow: 'GET, HEAD, OPTIONS' });
+    const method = request.method === 'HEAD' ? 'GET' : request.method;
+    if (!Object.hasOwn(route, method)) {
+      const allow = [...Object.keys(route), ...(Object.hasOwn(route, 'GET') ? ['HEAD'] : []), 'OPTIONS'];
+      throw new HttpError(405, 'method', { Allow: allow.join(', ') });
+    }
     if (!(await authorized(request))) throw new HttpError(401, 'unauthorized', { 'WWW-Authenticate': 'Bearer realm="telemetry"' });
+    // POST takes a JSON body; DELETE may (its code can also be in the query).
+    let body = null;
+    if (method === 'POST') body = await jsonBody(request);
+    else if (method === 'DELETE' && request.body && request.headers.get('content-length') !== '0') body = await jsonBody(request, true);
     const t = now();
-    return kind === 'kpis' ? store.kpis(kpiParams(query, t), t) : store.live(t);
+    await ready(t);
+    const stop = route[method] ? await store.guard?.(route[method], t) : null;
+    if (stop) throw new HttpError(429, stop.error, {}, { until: stop.until });
+    const answer = await work(name, method, query, body, t);
+    if (answer.error) throw new HttpError(answer.status || 400, answer.error);
+    return answer;
   }
 
   return async function handle(request, clientKey = '') {
     const headers = { Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
     const origin = request.headers.get('origin');
     if (origin !== null && origins.has(origin)) {
-      // Retry-After is not a CORS-safelisted response header, so the page could not read it otherwise.
-      Object.assign(headers, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Expose-Headers': 'Retry-After' });
+      // Retry-After and X-Batch-Every are not CORS-safelisted response headers, so the page could not read them otherwise.
+      Object.assign(headers, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Expose-Headers': 'Retry-After, X-Batch-Every' });
     }
     const send = (status, body, extra = {}) => body === undefined
       ? new Response(null, { status, headers: { ...headers, ...extra } })
-      : new Response(encoder.encode(JSON.stringify(body)), {
+      : new Response(encoder.encode(serialize(body)), {
         status, headers: { ...headers, ...extra, 'Content-Type': 'application/json; charset=utf-8' }
       });
     try {
@@ -162,25 +310,32 @@ export function createHandler(options) {
       if (wait) throw new HttpError(429, 'rate limited', { 'Retry-After': String(wait) });
       const url = new URL(request.url), { pathname } = url, method = request.method;
       if (method === 'OPTIONS') {
-        const preflight = headers['Access-Control-Allow-Origin'] ? { 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+        const preflight = headers['Access-Control-Allow-Origin'] ? { 'Access-Control-Allow-Methods': 'GET, HEAD, POST, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400' } : {};
         return send(204, undefined, preflight);
       }
       if (pathname === '/v1/batch') {
         if (method !== 'POST') throw new HttpError(405, 'method', { Allow: 'POST, OPTIONS' });
-        await batch(request);
-        return send(204);
+        const every = await batch(request);
+        return send(204, undefined, every ? { 'X-Batch-Every': String(every) } : {});
       }
       if (pathname === '/v1/health') {
         if (method !== 'GET' && method !== 'HEAD') throw new HttpError(405, 'method', { Allow: 'GET, HEAD, OPTIONS' });
-        return send(200, { ok: true });
+        // Answered without the database: which wire versions this server accepts.
+        return send(200, { ok: true, accepts: WIRES, schema: SCHEMA_VERSION });
       }
-      if (pathname === '/v1/admin/kpis' || pathname === '/v1/admin/live') return send(200, await admin(request, pathname.slice(10), url.searchParams));
+      if (pathname.startsWith('/v1/admin/') && Object.hasOwn(ADMIN, pathname.slice(10))) {
+        const answer = await admin(request, pathname.slice(10), url.searchParams);
+        if (!(answer instanceof CsvPage)) return send(200, answer);
+        // An export page: lines without a header, how many, and the next page's cursor.
+        return new Response(encoder.encode(answer.text), { status: 200, headers: { ...headers, 'Content-Type': 'text/csv; charset=utf-8',
+          'X-Rows': String(answer.rows), ...(answer.next ? { 'X-Next': answer.next } : {}) } });
+      }
       // Everything outside /v1/ is the dashboard's static files.
       if (assets && pathname !== '/v1' && !pathname.startsWith('/v1/') && (method === 'GET' || method === 'HEAD')) return await assets(request);
       throw new HttpError(404, 'not found');
     } catch (error) {
-      if (error instanceof HttpError) return send(error.status, { error: error.message }, error.headers);
+      if (error instanceof HttpError) return send(error.status, { error: error.message, ...error.more }, error.headers);
       log('telemetry: request failed: ' + (error && error.message));
       return send(500, { error: 'server' });
     }

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hideSqliteWarning } from './warnings.mjs';
 import { isAdminToken, parseOrigins } from './handler.mjs';
+import { RETENTION_DAYS } from './store.mjs';
 
 // Before node:sqlite loads: the server modules are imported dynamically below.
 hideSqliteWarning();
@@ -41,7 +42,7 @@ const config = {
   allowedOrigins: origins(env.ALLOWED_ORIGINS),
   adminToken,
   // Far larger values are past the dates JavaScript can hold, and every purge would fail.
-  retentionDays: whole('RETENTION_DAYS', 180, 1, 36500),
+  retentionDays: whole('RETENTION_DAYS', RETENTION_DAYS, 1, 36500),
   ratePerMin: whole('RATE_PER_MIN', 1200, 0),
   trustProxy: whole('TRUST_PROXY', 0, 0),
   log: message => console.log(message)

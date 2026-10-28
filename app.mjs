@@ -1,7 +1,7 @@
 // Node host of the ingest server: node:http in front of the Fetch-API handler
 // (handler.mjs), the store (store.mjs) over one SQLite file (sqlite-d1.mjs), the
-// dashboard's static files (static.mjs), a purge at start and every 24 hours, and a sweep
-// of the live rows every minute.
+// dashboard's static files (static.mjs), a purge at start and every 24 hours, the rollups
+// at start and every 5 minutes, and a sweep of the live rows every minute.
 // No IP, header or request body is ever stored or logged; the IP is only a key of the
 // handler's in-memory token bucket.
 import http from 'node:http';
@@ -9,12 +9,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHandler, MAX_BODY, MAX_RANGE_DAYS } from './handler.mjs';
 import { openDatabase } from './sqlite-d1.mjs';
-import { openStore } from './store.mjs';
+import { RETENTION_DAYS, openStore } from './store.mjs';
 import { staticFiles } from './static.mjs';
 
 export { MAX_BODY, MAX_RANGE_DAYS };
 const PURGE_EVERY_MS = 24 * 3600000;
 const SWEEP_EVERY_MS = 60000;
+const ROLL_EVERY_MS = 5 * 60000;
 const DRAIN_LIMIT = 1024 * 1024;
 const DASHBOARD = path.join(path.dirname(fileURLToPath(import.meta.url)), 'dashboard');
 
@@ -64,7 +65,7 @@ function requestBody(req) {
 
 export function createApp(options = {}) {
   const config = {
-    dbPath: ':memory:', allowedOrigins: [], adminToken: '', retentionDays: 180, ratePerMin: 1200,
+    dbPath: ':memory:', allowedOrigins: [], adminToken: '', retentionDays: RETENTION_DAYS, ratePerMin: 1200,
     trustProxy: 0, now: Date.now, log: () => {}, dashboardDir: DASHBOARD, ...options
   };
   const { now, log } = config;
@@ -73,7 +74,7 @@ export function createApp(options = {}) {
     store, allowedOrigins: config.allowedOrigins, adminToken: config.adminToken, ratePerMin: config.ratePerMin, now, log,
     assets: config.dashboardDir ? staticFiles(config.dashboardDir) : null
   });
-  let timer = null, sweeper = null, closing = null;
+  let timer = null, sweeper = null, roller = null, closing = null;
 
   async function respond(req, res) {
     const body = req.method === 'GET' || req.method === 'HEAD' ? null : requestBody(req);
@@ -115,7 +116,10 @@ export function createApp(options = {}) {
       const result = await store.purge(now());
       // Write the zeroed pages back and empty the write-ahead log, so purged rows leave the files.
       store.db?.compact?.();
-      if (result.rows || result.batches) log(`telemetry: purged ${result.rows} rows before ${result.cutoff} and ${result.batches} old batch ids`);
+      if (result.sessions || result.rows || result.batches) {
+        log(`telemetry: purged ${result.sessions} sessions before ${result.cutoff}, ${result.rows} frozen daily rows and ${result.batches} old batch ids`);
+      }
+      if (result.trimmed) log(`telemetry: the database is near its size limit: removing the round details before ${result.trimmed.to}`);
       return result;
     } catch (error) {
       log('telemetry: purge failed: ' + error.message);
@@ -126,21 +130,43 @@ export function createApp(options = {}) {
   async function sweep() {
     try { await store.sweep?.(now()); } catch (error) { log('telemetry: sweep failed: ' + error.message); }
   }
+  // At most one of the school's days rolled up (or rolled again) per call, one call at a time.
+  let rolling = null;
+  function roll() {
+    rolling ||= (async () => {
+      try {
+        return await store.rollupStep?.(now());
+      } catch (error) {
+        log('telemetry: rollup failed: ' + error.message);
+        return null;
+      } finally {
+        rolling = null;
+      }
+    })();
+    return rolling;
+  }
 
   return {
-    server, store, purge,
-    // Creates or upgrades the tables (a newer or unreadable database stops here), purges
-    // once, then every 24 hours, sweeps the live rows every minute and starts listening.
-    // Resolves to the address.
+    server, store, purge, roll,
+    // Creates or upgrades the tables, every version step (a newer or unreadable database
+    // stops here, so no request ever waits for an upgrade), purges once, then every 24
+    // hours, rolls up once, then every 5 minutes, sweeps the live rows every minute and
+    // starts listening. Resolves to the address.
     async listen(port = 0, host) {
-      await store.setup?.();
+      for (let step = 0; await store.setup?.(now()) === 'migrated'; step++) {
+        if (step > 3) throw new Error('the database did not reach the current schema');
+      }
       await purge();
+      await roll();
       clearInterval(timer);
       clearInterval(sweeper);
+      clearInterval(roller);
       timer = setInterval(purge, PURGE_EVERY_MS);
       timer.unref();
       sweeper = setInterval(sweep, SWEEP_EVERY_MS);
       sweeper.unref();
+      roller = setInterval(roll, ROLL_EVERY_MS);
+      roller.unref();
       return new Promise((resolve, reject) => {
         server.once('error', reject);
         server.listen(port, host, () => { server.off('error', reject); resolve(server.address()); });
@@ -150,6 +176,7 @@ export function createApp(options = {}) {
     close() {
       clearInterval(timer);
       clearInterval(sweeper);
+      clearInterval(roller);
       closing ||= new Promise(resolve => {
         server.close(() => { if (!options.store) store.close(); resolve(); });
         server.closeAllConnections();

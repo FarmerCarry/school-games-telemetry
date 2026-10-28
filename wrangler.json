@@ -10,7 +10,7 @@
   "triggers": { "crons": ["23 3 * * *", "*/5 * * * *"] },
   "vars": {
     "ALLOWED_ORIGINS": "https://farmercarry.github.io",
-    "RETENTION_DAYS": "180"
+    "RETENTION_DAYS": "400"
   },
   "observability": { "enabled": false }
 }
