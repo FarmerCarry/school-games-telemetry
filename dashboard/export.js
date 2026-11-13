@@ -16,41 +16,38 @@
   var FILES = D.SERVER_FILES;
   var BOM = '﻿';
   var SPLIT = 500000;
-  // Export pages answer 429 once the day's reads pass this (server/README.md).
+  // Export pages answer 429 once the day's reads pass this (README.md).
   var EXPORT_GUARD = 3500000;
-  // The lines of an export page at most (server/export.mjs PAGE_LINES).
+  // The lines of an export page at most (export.mjs PAGE_LINES).
   var PAGE_LINES = 2500;
   var DAY_COLUMN = D.columns('rounds').indexOf('day');
 
   // How many lines the server's files will have, from the period's KPI answer, and what
   // reading them costs: { lines, rows (read), share (of the day's reading allowance), stops
   // (true when today's reads so far plus these pass the export guard) }.
-  // D1 counts every table and index row a statement reads, and a line of server/export.mjs
-  // reads far more than itself: a session line looks up its link, counts its visits twice,
-  // its rounds and its marks; a visit line its session, link, previous and next visit, its
-  // rounds twice and its session's heart and tutorial marks twice; a round or a mark line its
-  // session, link and the round before or the visit; each students page reads every
-  // student-day and student-game row of the period again, and each PCs page every session.
-  // These are the rows those lookups match, so the estimate is a floor.
+  // D1 counts every table and index row a statement reads, and a line of export.mjs reads
+  // far more than itself: a session line counts its visits twice, its rounds and its marks;
+  // a visit line looks up its session, previous and next visit, its rounds twice and its
+  // session's heart and tutorial marks twice; a round or a mark line its session and the
+  // round before or the visit; each PCs page reads every session. These are the rows those
+  // lookups match, so the estimate is a floor.
   function estimate(k, usage, days) {
-    var t = k && k.totals || {}, st = t.students || {}, games = (k && k.games || []).filter(function (g) { return g && !g.suppressed; });
+    var t = k && k.totals || {}, games = (k && k.games || []).filter(function (g) { return g && !g.suppressed; });
     var num = function (v) { return typeof v === 'number' && isFinite(v) ? v : 0; };
-    var levelUps = num(t.levelUps), others = 0;
+    var marks = 0;
     games.forEach(function (g) {
-      others += num(g.hearts && g.hearts.on) + num(g.hearts && g.hearts.off) + num(g.tutorials && g.tutorials.start) + num(g.tutorials && g.tutorials.done);
+      marks += num(g.hearts && g.hearts.on) + num(g.hearts && g.hearts.off) + num(g.tutorials && g.tutorials.start) + num(g.tutorials && g.tutorials.done);
     });
-    var marks = levelUps + others, sessions = num(t.sessions), opens = num(t.gameOpens), rounds = Math.max(num(t.roundsStarted), num(t.roundsEnded));
-    var students = num(st.active), studentDays = Math.max(0, sessions - num(st.guestSessions)), gameDays = games.length * Math.max(1, num(days));
+    var sessions = num(t.sessions), opens = num(t.gameOpens), rounds = Math.max(num(t.roundsStarted), num(t.roundsEnded));
+    var gameDays = games.length * Math.max(1, num(days));
     var pcs = num(k && k.quality && k.quality.pcsNew), perSession = sessions ? opens / sessions : 0;
     var pages = function (n) { return Math.max(1, Math.ceil(n / PAGE_LINES)); };
-    var lines = students + sessions + opens + rounds + marks + studentDays + gameDays + pcs;
+    var lines = sessions + opens + rounds + marks + gameDays + pcs;
     var reads = {
-      students: students * 3 + pages(students) * (studentDays + opens),
       sessions: sessions * 2 + opens * 2 + rounds + marks,
-      visits: opens * 5 + rounds * 2 + 2 * others * perSession,
-      rounds: rounds * 4,
-      events: marks * 4,
-      student_days: studentDays * 2,
+      visits: opens * 4 + rounds * 2 + 2 * marks * perSession,
+      rounds: rounds * 3,
+      events: marks * 3,
       daily_games: gameDays,
       pcs: pcs * 2 + pages(pcs) * sessions
     };

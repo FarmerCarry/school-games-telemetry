@@ -6,7 +6,7 @@
  * s3 aqua ("left unfinished"). Status colours are only for the difficulty verdicts
  * and PC-health flags, always with an icon and a label. Age groups are never s1-s3:
  * they are small multiples in s1. Two blue ramps from the reference palette, validated
- * with validate_palette.js --ordinal in each mode: q1..q5 sequential (heatmaps, cohorts,
+ * with validate_palette.js --ordinal in each mode: q1..q5 sequential (heatmaps,
  * the calendar; dark mode runs from the surface up) and o1..o4 ordinal (ordered parts of
  * a whole: same level, another level, another game, stopped; returning and new). A cell
  * label sits on its own step: dark ink on the light steps, white on the dark ones.
@@ -246,7 +246,7 @@ main { padding-bottom: 48px; }
   background: none; border: 0; padding: 0; font: inherit; font-size: inherit; color: var(--accent); cursor: pointer;
   text-decoration: underline; text-underline-offset: 2px;
 }
-/* The small-sample chip: a number based on fewer than 5 children or 20 tries. */
+/* The small-sample chip: a number based on fewer than 20 tries. */
 .chip {
   display: inline-block; font-size: 12px; line-height: 1.5; font-weight: 500; color: var(--ink-2); white-space: nowrap;
   border: 1px solid var(--border-strong); border-radius: 999px; padding: 0 8px; vertical-align: 1px;
@@ -374,7 +374,6 @@ svg.chart:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px;
 .stack-host { display: block; }
 .stack-host svg { width: 100%; }
 .diff-cell { min-width: 0; }
-.diff-cell-band { display: none; }
 .verdict { display: inline-flex; align-items: center; gap: 6px; line-height: 1.3; }
 .verdict-icon { width: 14px; height: 14px; flex: none; fill: none; stroke: none; }
 .v-hard .verdict-icon { fill: var(--critical); }
@@ -421,11 +420,10 @@ td.flags { white-space: normal; }
 /* ---- filters: the custom period, the game picker, the code search ---------------------------------- */
 .custom-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
 .field { display: inline-flex; flex-direction: column; gap: 3px; font-size: 13px; color: var(--ink-2); }
-.field input, .field select, .game-pick, .code-search {
+.field input, .field select, .game-pick {
   font: 14px/1.4 var(--font); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border-strong);
   background: var(--surface); color: var(--ink); max-width: 100%;
 }
-.code-search { width: 16em; }
 .field-error { margin: 6px 0 0; font-size: 13px; color: var(--ink); font-weight: 600; }
 .seg-small button { padding: 3px 10px; font-size: 12.5px; }
 .card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: none; }
@@ -483,7 +481,6 @@ td.flags { white-space: normal; }
 .hm-cell:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 .calendar .hm-cell { min-height: 12px; border-radius: 2px; }
 .calendar .hm-grid { font-size: 11px; }
-.cohorts .hm-cell { min-height: 24px; }
 .hm-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
 .hm-ramp { display: inline-flex; gap: 2px; }
 .hm-swatch { display: inline-block; width: 16px; height: 10px; border-radius: 2px; }
@@ -505,36 +502,17 @@ td.flags { white-space: normal; }
 .game-card-verdict { font-size: 12.5px; }
 .game-card-link .chip { align-self: flex-start; }
 
-/* ---- tables: sortable, pages, links ---------------------------------------------------------------------- */
-table.data th[aria-sort] { color: var(--ink); }
-.sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: inherit; }
-.sort:hover { text-decoration: underline; text-underline-offset: 2px; }
-.sort-mark { font-size: 9px; margin-inline-start: 4px; vertical-align: 1px; }
-table.students td, table.students th { white-space: nowrap; }
+/* ---- tables and links ---------------------------------------------------------------------- */
 table.data .time, table.data .build { font-variant-numeric: tabular-nums; }
-.student-link, .game-link { font-weight: 500; }
-.student-link + .chip { margin-inline-start: 6px; }
-.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
-.pager-text { margin-inline-end: auto; }
+.game-link { font-weight: 500; }
 .btn-quiet:disabled { opacity: 0.55; cursor: default; }
 
-/* ---- a student's page --------------------------------------------------------------------------------------- */
-.student-facts { margin: 0 0 4px; font-size: 15px; }
-.student-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .btn-danger { color: var(--ink); border-color: color-mix(in srgb, var(--critical) 55%, var(--border-strong)); }
 .btn-danger:hover { background: var(--error-bg); }
-.action-panel { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border-strong); max-width: 720px; }
-.action-panel .card-title { margin-bottom: 4px; }
-.action-panel p { margin: 6px 0; }
-.action-panel .field { margin: 8px 0; }
-.action-panel .field input { width: 16em; }
-.link-results { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0; }
 .link-step { margin: 8px 0; }
 .link-step .btn-quiet, .link-step .btn-link { margin-inline-end: 10px; }
 .warn { font-weight: 600; }
 .note.done { color: var(--ink); font-weight: 600; }
-.linked-codes { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 10px; font-size: 13.5px; }
-.linked-code { display: inline-flex; gap: 8px; align-items: baseline; font-variant-numeric: tabular-nums; }
 .flags-line { margin: 10px 0 0; }
 
 /* ---- Data & settings ------------------------------------------------------------------------------------------- */
@@ -560,9 +538,6 @@ table.data .time, table.data .build { font-variant-numeric: tabular-nums; }
 .dict-pick { margin: 4px 0 4px; }
 table.dictionary .dict-meaning { min-width: 16em; }
 table.dictionary .dict-name { white-space: nowrap; }
-.child-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.child-who { margin: 12px 0 0; }
-.child-result .link-results { margin-top: 10px; }
 
 /* ---- small screens --------------------------------------------------------------------------------- */
 @media (max-width: 879px) {
@@ -578,10 +553,9 @@ table.dictionary .dict-name { white-space: nowrap; }
   .seg { flex: 1; min-width: 0; flex-wrap: wrap; }
   .seg button { flex: 1 1 auto; padding: 6px 6px; }
   .tab { padding: 5px 9px; font-size: 13.5px; }
-  .code-search, .game-pick { flex: 1; min-width: 0; width: auto; }
+  .game-pick { flex: 1; min-width: 0; width: auto; }
   .stack-row { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
   .stack-row .stack-host { grid-column: 1 / -1; grid-row: 2; }
-  .action-panel .field input { width: 100%; }
   .status { margin-inline-start: 0; width: 100%; }
   .status #refreshBtn { margin-inline-start: auto; }
   .card { padding: 14px; }
@@ -598,7 +572,6 @@ table.dictionary .dict-name { white-space: nowrap; }
   .diff-grid.cols-1 .diff-row { --n: 1; }
   .diff-game, .diff-bar { grid-column: 1 / -1; }
   .diff-cell { display: flex; flex-direction: column; gap: 2px; }
-  .diff-cell-band { display: block; font-size: 11.5px; color: var(--ink-2); }
   .verdict { font-size: 12.5px; }
   table.health thead { display: none; }
   table.health, table.health tbody, table.health tr { display: block; }

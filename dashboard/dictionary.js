@@ -2,13 +2,13 @@
  * The research files' data dictionary (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6): every file
  * of the research download with its columns in their pinned order, each as [name, type,
  * unit, values, meaning_en, meaning_ar, source, available_for]. The server's files
- * (students ... pcs) list exactly the COLUMNS of server/export.mjs, which
- * tools/tests/dashboard-research.test.mjs checks; games.csv and dictionary.csv are written
+ * (sessions ... pcs) list exactly the COLUMNS of export.mjs, which
+ * test/no-accounts.test.mjs checks; games.csv and dictionary.csv are written
  * by the browser. It also holds the validity notes and writes the files the browser adds
  * to the download (dictionary.csv, games.csv, README.txt, labels.sps, load.R) and
- * docs/RESEARCH_DATA.md:
+ * the researchers' guide (RESEARCH_DATA.md):
  *
- *   node server/dashboard/dictionary.js --md > docs/RESEARCH_DATA.md
+ *   node dashboard/dictionary.js --md > RESEARCH_DATA.md
  *
  * Pure: no DOM, no clock, no network. The page uses window.SGDictionary; Node loads it as
  * a plain script (module.exports when CommonJS is around).
@@ -31,17 +31,12 @@
   'use strict';
 
   var ALL = 'all games', DDA = 'DDA games', SCORE = 'games with a score', TUTORIAL = 'tutorial games', FRAMES = 'games with frames';
-  var BAND = '6-7, 8-9, 10-11; empty: not set', HEX = '12 hex digits', OLD = ' Empty for PCs on the old version.', OLD_AR = ' فارغ لأجهزة الإصدار القديم.';
+  var HEX = '12 hex digits', OLD = ' Empty for PCs on the old version.', OLD_AR = ' فارغ لأجهزة الإصدار القديم.';
   // A column: [name, type, unit, values, meaning_en, meaning_ar, source, available_for].
   function c(name, type, unit, values, en, ar, source, available) { return [name, type, unit || '', values || '', en, ar, source || 'server', available || ALL]; }
   // Columns several files share.
   var SESSION = c('session', 'code', '', HEX, 'The play session (sessions.csv).', 'جلسة اللعب (sessions.csv).', 'envelope.s');
-  var STUDENT = c('student', 'code', '', HEX, 'The student code; empty for a guest and for PCs on the old version.', 'رمز الطالب؛ فارغ للضيف ولأجهزة الإصدار القديم.', 'envelope.u');
-  var LINKED = c('student_linked', 'code', '', HEX,
-    'The code this student counts under: the newer code an older one was linked to (by a teacher’s code transfer or on the dashboard), else the student code itself. Group a child’s rows by it. Empty for a guest.',
-    'الرمز الذي يُحسب تحته هذا الطالب: الرمز الأحدث الذي رُبط به رمز أقدم (بنقل الرمز من صفحة المعلم أو من لوحة المتابعة)، وإلا فرمز الطالب نفسه. اجمع صفوف الطفل الواحد به. فارغ للضيف.', 'cd.oldCode, owner link');
   var PC = c('pc', 'code', '', HEX, 'The PC code: 12 random hex digits made once on each PC.' + OLD, 'رمز الجهاز: 12 خانة ست عشرية عشوائية تُنشأ مرة واحدة على كل جهاز.' + OLD_AR, 'envelope.p');
-  var SESSION_BAND = c('band', 'category', '', BAND, 'The age group of the session: the profile’s, or the class default for a guest.', 'الفئة العمرية للجلسة: فئة الملف، أو الفئة الافتراضية للصف عند الضيف.', 'envelope.a');
   var WEEKDAY = c('weekday', 'integer', '', '1–7', 'The weekday of day: 1 Sunday … 7 Saturday.', 'يوم الأسبوع: 1 الأحد … 7 السبت.');
   var GAME = c('game', 'text', 'slug', '', 'The game, by its id in games.csv.', 'اللعبة بمعرّفها في games.csv.', 'go.slug');
   var count = function (name, en, ar, source, available) { return c(name, 'integer', '', '', en, ar, source, available); };
@@ -60,44 +55,12 @@
   var OUTCOMES = 'win, loss, draw, end, quit; empty: never ended';
 
   var FILES = [
-    { file: 'students', from: 'server', one: ['student code with play in the period', 'رمز طالب لعب خلال الفترة'], columns: [
-      c('student', 'code', '', HEX, 'The student code: 12 random hex digits made for one child’s profile on one PC. Nothing about the child goes into it.',
-        'رمز الطالب: 12 خانة ست عشرية عشوائية تُنشأ لملف طفل واحد على جهاز واحد، ولا يدخل فيه شيء عن الطفل.', 'envelope.u'),
-      c('student_label', 'text', '', '', 'The start of the code in capitals, as the dashboard shows it (Student 7F3A); longer when another code starts the same way.',
-        'بداية الرمز بأحرف كبيرة، وهي ما تعرضه لوحة المتابعة بعد كلمة «الطالب»، وتطول إذا بدأ رمز آخر بالبداية نفسها.'),
-      LINKED,
-      c('kind', 'category', '', 'profile', 'Always profile: every student code belongs to a profile on a PC.', 'دائمًا profile: كل رمز طالب يخص ملفًا على جهاز.'),
-      c('band_first', 'category', '', BAND, 'The age group of the code’s first session, as chosen when the profile was made. It does not move up a year, so use it as the cohort.',
-        'الفئة العمرية في أول جلسة لهذا الرمز كما اختيرت عند إنشاء الملف. لا تتقدم مع مرور السنين، فاستخدمها لتحديد الفوج.', 'envelope.a'),
-      c('band_last', 'category', '', BAND, 'The age group of the code’s latest session.', 'الفئة العمرية في أحدث جلسة لهذا الرمز.', 'envelope.a'),
-      c('profile_made_day', 'date', '', '', 'The day the profile was made: the day of its first session here less the profile’s age then.',
-        'يوم إنشاء الملف: يوم أول جلسة له هنا مطروحًا منه عمر الملف آنذاك.', 'ss.ageDays'),
-      c('first_day', 'date', '', '', 'The day of the first play the server keeps for this code, in any period.', 'يوم أول لعب يحتفظ به الخادم لهذا الرمز، في أي فترة.'),
-      c('last_day', 'date', '', '', 'The day of the latest play the server keeps for this code, in any period.', 'يوم آخر لعب يحتفظ به الخادم لهذا الرمز، في أي فترة.'),
-      c('days_active', 'integer', 'days', '', 'Days with play in the exported period.', 'الأيام التي لعب فيها خلال الفترة المصدَّرة.'),
-      count('sessions', 'Play sessions in the period.', 'جلسات اللعب خلال الفترة.', 'ss'),
-      minutes('minutes', 'Engaged minutes in the period (see the note on engaged time).', 'دقائق اللعب الفعلي خلال الفترة (انظر الملاحظة عن وقت اللعب الفعلي).'),
-      count('rounds', 'Rounds ended in the period.', 'الجولات المنتهية خلال الفترة.', 're'),
-      WINS, LOSSES, QUITS,
-      count('games_tried', 'Different games played in the period.', 'عدد الألعاب المختلفة التي لعبها خلال الفترة.', 'go.slug'),
-      c('favourite_game', 'text', 'slug', '', 'The game with the most engaged minutes in the period (a tie goes to the first id in alphabetical order).',
-        'اللعبة التي نالت أكثر دقائق اللعب الفعلي خلال الفترة (عند التساوي: أول معرّف أبجديًا).', 'go.slug, gx.engagedMs'),
-      count('pcs', 'PCs this code has played on: one, or more when a teacher gave a profile on another PC the same code.',
-        'عدد الأجهزة التي لُعب عليها بهذا الرمز: جهاز واحد، أو أكثر حين أعطى المعلم ملفًا على جهاز آخر الرمز نفسه.', 'envelope.p'),
-      c('known_before', 'flag', '', '0, 1', '1 when the profile was made before the first play the server keeps for it: a child who played before the research data began.',
-        '1 إذا أُنشئ الملف قبل أول لعب يحتفظ به الخادم له: طفل لعب قبل بدء بيانات البحث.', 'ss.ageDays'),
-      c('removed_day', 'date', '', '', 'The day a PC removed this profile: the record stops there (censoring, not drop-out). Empty when it was not removed.',
-        'اليوم الذي حُذف فيه هذا الملف من جهاز: يتوقف سجله عنده (انقطاع في الرصد لا انسحاب). فارغ إن لم يُحذف.', 'pr.code')
-    ] },
     { file: 'sessions', from: 'server', one: ['play session', 'جلسة لعب'], columns: [
-      c('session', 'code', '', HEX, 'The play session: a random id made when a child or a guest starts playing, and again at each change of player.',
-        'جلسة اللعب: معرّف عشوائي يُنشأ حين يبدأ طفل أو ضيف اللعب، ويتجدد عند كل تغيير للاعب.', 'envelope.s'),
-      STUDENT, LINKED, PC,
-      c('kind', 'category', '', 'student, guest, unknown', 'student: a child with a profile; guest: played without picking an animal; unknown: a PC on the old version (wire 2), which does not tell students apart.',
-        'student: طفل له ملف؛ guest: لعب دون اختيار حيوان؛ unknown: جهاز بالإصدار القديم (الإصدار 2) الذي لا يميّز الطلاب.', 'envelope.u, envelope.v'),
+      c('session', 'code', '', HEX, 'The play session: a random id made when play starts on a PC, and again after the hand-over button or 20 quiet minutes. It says nothing about who played.',
+        'جلسة اللعب: معرّف عشوائي يُنشأ حين يبدأ اللعب على جهاز، ويتجدد بعد زر التسليم أو عشرين دقيقة دون لمس. ولا يدل على من لعب.', 'envelope.s'),
+      PC,
       c('wire_version', 'integer', '', '2, 3', 'The version of the data the PC sent: 3 since the update, 2 from PCs not updated yet.',
         'إصدار البيانات التي أرسلها الجهاز: 3 منذ التحديث، و2 من الأجهزة التي لم تُحدَّث بعد.', 'envelope.v'),
-      SESSION_BAND,
       c('day', 'date', '', '', 'The school day the session started.', 'اليوم الدراسي الذي بدأت فيه الجلسة.', 'envelope.w'),
       WEEKDAY,
       c('start_time', 'time', '', '', 'The time the session started.', 'وقت بدء الجلسة.', 'envelope.w'),
@@ -109,26 +72,13 @@
       c('mode', 'category', '', 'web, app', 'web: in a browser tab; app: the installed app.', 'web: في تبويب متصفح؛ app: التطبيق المثبّت.', 'envelope.m'),
       c('build', 'text', '', '', 'The version of the games site the PC ran (a build fingerprint).', 'إصدار موقع الألعاب على الجهاز (بصمة البناء).', 'envelope.k')
     ].concat(DEVICE, [
-      c('classroom_mode', 'flag', '', '0, 1', '1 when the PC was in classroom mode.' + OLD, '1 إذا كان الجهاز في وضع الصف.' + OLD_AR, 'ss.cls'),
-      count('profiles_on_pc', 'Profiles on the PC when the session started (at most 24).' + OLD, 'عدد الملفات على الجهاز عند بدء الجلسة (24 على الأكثر).' + OLD_AR, 'ss.np'),
-      c('new_profile', 'flag', '', '0, 1', '1 when the profile was made in this session.', '1 إذا أُنشئ الملف في هذه الجلسة.', 'ss.isNew'),
-      c('profile_age_days', 'integer', 'days', '', 'The profile’s age in days when the session started; empty for a guest.' + OLD,
-        'عمر الملف بالأيام عند بدء الجلسة؛ فارغ للضيف.' + OLD_AR, 'ss.ageDays'),
-      c('days_since_last', 'integer', 'days', '', 'Days since the profile last played; empty for a guest, a new profile or one that never played.' + OLD,
-        'الأيام منذ آخر لعب للملف؛ فارغ للضيف وللملف الجديد أو الذي لم يلعب قط.' + OLD_AR, 'ss.sinceDays'),
-      c('profile_age_bucket', 'integer', '', '0–3', 'The profile’s age as the old version sends it: 0 new or a guest, 1 1–6 days, 2 7–29 days, 3 30 days or more.',
-        'عمر الملف كما يرسله الإصدار القديم: 0 جديد أو ضيف، 1 من يوم إلى 6 أيام، 2 من 7 إلى 29 يومًا، 3 ثلاثون يومًا فأكثر.', 'ss'),
-      c('days_since_last_bucket', 'integer', '', '0–4', 'Days since the last play as the old version sends it: 0 the same day, 1 one day, 2 2–6 days, 3 7 days or more, 4 the first time.',
-        'الأيام منذ آخر لعب كما يرسلها الإصدار القديم: 0 اليوم نفسه، 1 يوم واحد، 2 من يومين إلى 6 أيام، 3 سبعة أيام فأكثر، 4 أول مرة.', 'ss'),
-      count('level_start', 'The profile’s level (from its experience points) when the session started; 0 for a guest.', 'مستوى الملف (من نقاط خبرته) عند بدء الجلسة؛ 0 للضيف.', 'ss.level'),
-      count('level_ups', 'Times the profile went up a level in the session.', 'مرات ارتقاء الملف إلى مستوى أعلى في الجلسة.', 'lv'),
       count('games_opened', 'Games opened in the session.', 'الألعاب التي فُتحت في الجلسة.', 'go'),
       count('rounds', 'Rounds ended in the session.', 'الجولات المنتهية في الجلسة.', 're'),
       c('engaged_s', 'decimal', 's', '', 'Engaged seconds in the session’s games.', 'ثواني اللعب الفعلي في ألعاب الجلسة.', 'gx.engagedMs, gp.engagedMs'),
       c('end_t_s', 'integer', 's', '', 'Seconds from the start to the session’s end; empty when the end never arrived (the PC switched off or lost its connection for good).',
         'الثواني من البدء إلى نهاية الجلسة؛ فارغ إذا لم تصل النهاية (أُطفئ الجهاز أو انقطع اتصاله نهائيًا).', 'se.t'),
-      c('end_reason', 'category', '', 'unload, switch, handover, idle', 'Why the session ended: unload, the page closed; switch, another player was picked; handover, the hand-over button; idle, 20 minutes without a touch.' + OLD,
-        'سبب انتهاء الجلسة: unload أُغلقت الصفحة؛ switch اختير لاعب آخر؛ handover زر التسليم؛ idle عشرون دقيقة دون لمس.' + OLD_AR, 'se.why'),
+      c('end_reason', 'category', '', 'unload, switch, handover, idle', 'Why the session ended: unload, the page closed; switch, a new session was started on the page (older versions of the site); handover, the hand-over button; idle, 20 minutes without a touch.' + OLD,
+        'سبب انتهاء الجلسة: unload أُغلقت الصفحة؛ switch بدأت جلسة جديدة في الصفحة (في إصدارات أقدم من الموقع)؛ handover زر التسليم؛ idle عشرون دقيقة دون لمس.' + OLD_AR, 'se.why'),
       c('timer_minutes', 'integer', 'min', '', 'The minutes of the first classroom timer started in the session; empty without a timer.' + OLD,
         'دقائق أول مؤقت صفي بدأ في الجلسة؛ فارغ إن لم يُستخدم مؤقت.' + OLD_AR, 'ct'),
       c('timer_ended', 'flag', '', '0, 1', '1 when a classroom timer ran out in the session, 0 when one was started but did not run out; empty without a timer.',
@@ -137,7 +87,6 @@
     { file: 'visits', from: 'server', one: ['game visit (a game opened in a session)', 'زيارة لعبة (لعبة فُتحت في جلسة)'], columns: [
       SESSION,
       count('visit', 'The visit’s number in the session: 1 for the first game opened, and so on.', 'رقم الزيارة في الجلسة: 1 لأول لعبة فُتحت، وهكذا.', 'go.n'),
-      STUDENT, LINKED, SESSION_BAND,
       c('day', 'date', '', '', 'The school day the game was opened (or closed, when the opening was not seen).', 'اليوم الدراسي الذي فُتحت فيه اللعبة (أو أُغلقت، إن لم يُرصد الفتح).', 'go.t'),
       c('open_time', 'time', '', '', 'The time the game was opened.', 'وقت فتح اللعبة.', 'go.t'),
       c('open_s', 'integer', 's', '', 'Seconds from the session’s start to the game’s opening.', 'الثواني من بدء الجلسة إلى فتح اللعبة.', 'go.t'),
@@ -148,10 +97,10 @@
       c('source', 'category', '', 'featured, catalog, recent, favorites, category, quick, search, related, surprise, reload, history, direct, starter',
         'Where the game was opened: the featured tile, the home page tiles, played recently, favourites, a category, quick picks, search, related games, surprise me, a page reload, back or forward, a direct link, the starter game.',
         'المكان الذي فُتحت منه اللعبة: البطاقة المميزة، أو بطاقات الصفحة الرئيسية، أو ما لُعب مؤخرًا، أو المفضلة، أو فئة، أو الاختيارات السريعة، أو البحث، أو الألعاب المشابهة، أو «فاجئني»، أو إعادة تحميل الصفحة، أو الرجوع والتقدم، أو رابط مباشر، أو لعبة البداية.', 'go.src'),
-      count('plays_before', 'The child’s visits to this game before this one (0 for a guest).' + OLD, 'زيارات الطفل لهذه اللعبة قبل هذه الزيارة (0 للضيف).' + OLD_AR, 'go.playsBefore'),
+      count('plays_before', 'Visits to this game on this browser before this one, as the PC counted them.' + OLD, 'زيارات هذه اللعبة على هذا المتصفح قبل هذه الزيارة، كما عدّها الجهاز.' + OLD_AR, 'go.playsBefore'),
       c('plays_before_bucket', 'integer', '', '0–4', 'plays_before as the old version sends it: 0, 1, 2 for 2–4, 3 for 5–9, 4 for 10 or more.',
         'plays_before كما يرسلها الإصدار القديم: 0، 1، 2 لما بين 2 و4، 3 لما بين 5 و9، 4 لعشرة فأكثر.', 'go'),
-      c('favourite_at_open', 'flag', '', '0, 1', '1 when the child had given the game a heart before opening it.' + OLD, '1 إذا كان الطفل قد وضع قلبًا على اللعبة قبل فتحها.' + OLD_AR, 'go.fav'),
+      c('favourite_at_open', 'flag', '', '0, 1', '1 when the game had a heart (favourite) on this browser before it was opened.' + OLD, '1 إذا كان على اللعبة قلب (مفضلة) في هذا المتصفح قبل فتحها.' + OLD_AR, 'go.fav'),
       c('load_ms', 'integer', 'ms', '', 'How long the game took to load.', 'مدة تحميل اللعبة.', 'ld.loadMs'),
       c('error', 'category', '', 'timeout, script, load', 'Why the game failed to start: it took too long, a script error, or a loading error; empty when it started.',
         'سبب تعذّر بدء اللعبة: استغرقت وقتًا طويلًا، أو خطأ في البرنامج، أو خطأ في التحميل؛ فارغ إذا بدأت.', 'er.kind'),
@@ -179,7 +128,7 @@
       SESSION,
       count('visit', 'The visit in the session (visits.csv).', 'الزيارة في الجلسة (visits.csv).', 'rs.n, re.n'),
       count('round', 'The round’s number in the visit.', 'رقم الجولة في الزيارة.', 'rs.k, re.k'),
-      STUDENT, LINKED, PC, SESSION_BAND,
+      PC,
       c('day', 'date', '', '', 'The school day the round started (or ended, when its start was not seen).', 'اليوم الدراسي الذي بدأت فيه الجولة (أو انتهت، إن لم يُرصد بدؤها).', 'rs.t, re.t'),
       WEEKDAY,
       c('time', 'time', '', '', 'The time the round started (or ended).', 'وقت بدء الجولة (أو انتهائها).', 'rs.t, re.t'),
@@ -192,16 +141,14 @@
       c('previous_outcome', 'category', '', OUTCOMES, 'The outcome of the round just before in the same visit; empty for the first.', 'نتيجة الجولة السابقة مباشرة في الزيارة نفسها؛ فارغ للأولى.', 're.code'),
       c('two_player', 'flag', '', '0, 1', '1 for a local two-player round (two children on one PC). These are left out of the skill measures.',
         '1 لجولة لاعبَين على جهاز واحد. تُستبعد هذه الجولات من مقاييس المهارة.', 're.id'),
-      count('attempt', 'The student’s attempt at this game: the rounds of it the student has ended so far, this one included, in the order the server received them.',
-        'محاولة الطالب في هذه اللعبة: جولاتها التي أنهاها الطالب حتى الآن ومعها هذه الجولة، بترتيب استلام الخادم لها.'),
       count('replay_in_session', 'Earlier starts of the same round id in this session.', 'مرات بدء معرّف الجولة نفسه قبلها في هذه الجلسة.', 'rs.replay'),
       c('engaged_ms', 'integer', 'ms', '', 'Engaged time in the round.', 'وقت اللعب الفعلي في الجولة.', 're.ms'),
       c('wall_ms', 'integer', 'ms', '', 'Clock time from the round’s start to its end (games built with the newer kit).', 'الوقت بالساعة من بدء الجولة إلى نهايتها (في الألعاب المبنية بالنسخة الأحدث).', 're.x[0]'),
       c('score', 'integer', '', '', 'The score the game passed; it means something different in each game (games.csv).', 'النتيجة التي مرّرتها اللعبة؛ يختلف معناها من لعبة إلى أخرى (games.csv).', 're.score', SCORE),
       c('tier_start', 'integer', '', '0–9', 'The difficulty tier at the start (0: the game has no tiers).', 'درجة الصعوبة عند البدء (0: لا درجات في اللعبة).', 'rs.tier', DDA),
       c('tier_end', 'integer', '', '0–9', 'The difficulty tier at the end (0: the game has no tiers).', 'درجة الصعوبة عند النهاية (0: لا درجات في اللعبة).', 're.tier', DDA),
-      c('dda_level', 'integer', '‰', '0–1000', 'The difficulty level the game had chosen for this child, in thousandths (0 the easiest, 1000 the hardest); empty before the first adjustment.',
-        'مستوى الصعوبة الذي اختارته اللعبة لهذا الطفل، بالألف (0 الأسهل، 1000 الأصعب)؛ فارغ قبل أول تعديل.', 're.x[6]', DDA),
+      c('dda_level', 'integer', '‰', '0–1000', 'The difficulty level the game had reached on this browser, in thousandths (0 the easiest, 1000 the hardest); empty before the first adjustment.',
+        'مستوى الصعوبة الذي بلغته اللعبة على هذا المتصفح، بالألف (0 الأسهل، 1000 الأصعب)؛ فارغ قبل أول تعديل.', 're.x[6]', DDA),
       HITS, MISSES,
       share('accuracy', 'Accuracy: hits / (hits + misses); empty without either.', 'الدقة: hits / (hits + misses)؛ فارغة إذا لم يوجد أيّ منهما.', 're.hits, re.misses', DDA),
       count('rt_lt300', 'Reactions faster than 300 ms.', 'الاستجابات الأسرع من 300 ملّي ثانية.', 're.rt[0]', DDA),
@@ -214,48 +161,27 @@
       count('rt_n', 'Reactions measured.', 'عدد الاستجابات المقيسة.', 're.x[5]', DDA),
       count('inputs', 'Key presses and clicks in the round (games built with the newer kit).', 'ضغطات المفاتيح والنقرات في الجولة (في الألعاب المبنية بالنسخة الأحدث).', 're.x[1]'),
       c('inputs_per_min', 'decimal', '1/min', '', 'inputs per minute of wall_ms.', 'inputs لكل دقيقة من wall_ms.', 're.x[0], re.x[1]'),
-      count('idle_lapses', 'Times the child came back after 20 seconds without a touch, inside the round.', 'مرات عودة الطفل بعد 20 ثانية دون لمس، داخل الجولة.', 're.x[2]'),
+      count('idle_lapses', 'Times play came back after 20 seconds without a touch, inside the round.', 'مرات عودة اللعب بعد 20 ثانية دون لمس، داخل الجولة.', 're.x[2]'),
       count('pauses', 'Times the round was paused (the game paused, or the window lost the focus).', 'مرات توقف الجولة مؤقتًا (أوقفت اللعبة، أو فقدت النافذة التركيز).', 're.x[3]')
     ] },
     { file: 'events', from: 'server', one: ['event in a session', 'حدث في جلسة'], columns: [
-      SESSION, STUDENT, LINKED,
-      c('day', 'date', '', '', 'The school day of the event.', 'اليوم الدراسي للحدث.', 'lv.t, fv.t, tu.t, ct.t, pr.t, cd.t'),
-      c('time', 'time', '', '', 'The time of the event.', 'وقت الحدث.', 'lv.t, fv.t, tu.t, ct.t, pr.t, cd.t'),
-      c('t_s', 'integer', 's', '', 'Seconds from the session’s start to the event.', 'الثواني من بدء الجلسة إلى الحدث.', 'lv.t, fv.t, tu.t, ct.t, pr.t, cd.t'),
-      c('kind', 'category', '', 'level_up, heart_on, heart_off, tutorial_start, tutorial_done, timer_start, timer_cancel, timer_end, profile_removed, linked',
-        'What happened: the profile went up a level; the heart was turned on or off; a tutorial started or was finished; a classroom timer started, was cancelled or ran out; a profile was removed from the PC; an older code was linked to this session’s student.',
-        'ما حدث: ارتقى الملف إلى مستوى أعلى؛ فُعّل القلب أو أُلغي؛ بدأ درس تعليمي أو اكتمل؛ بدأ مؤقت صفي أو أُلغي أو انتهى وقته؛ حُذف ملف من الجهاز؛ رُبط رمز أقدم بطالب هذه الجلسة.',
-        'lv, fv, tu, ct, pr, cd'),
+      SESSION,
+      c('day', 'date', '', '', 'The school day of the event.', 'اليوم الدراسي للحدث.', 'fv.t, tu.t, ct.t'),
+      c('time', 'time', '', '', 'The time of the event.', 'وقت الحدث.', 'fv.t, tu.t, ct.t'),
+      c('t_s', 'integer', 's', '', 'Seconds from the session’s start to the event.', 'الثواني من بدء الجلسة إلى الحدث.', 'fv.t, tu.t, ct.t'),
+      c('kind', 'category', '', 'heart_on, heart_off, tutorial_start, tutorial_done, timer_start, timer_cancel, timer_end',
+        'What happened: the heart was turned on or off; a tutorial started or was finished; a classroom timer started, was cancelled or ran out.',
+        'ما حدث: فُعّل القلب أو أُلغي؛ بدأ درس تعليمي أو اكتمل؛ بدأ مؤقت صفي أو أُلغي أو انتهى وقته.',
+        'fv, tu, ct'),
       c('game', 'text', 'slug', '', 'The game of the visit the event happened in; empty outside a game.', 'لعبة الزيارة التي وقع فيها الحدث؛ فارغ خارج الألعاب.', 'fv.n, tu.n'),
-      c('value', 'text', '', '', 'level_up: the new level; timer_start: its minutes; profile_removed and linked: the code; else empty.',
-        'level_up: المستوى الجديد؛ timer_start: دقائقه؛ profile_removed وlinked: الرمز؛ وإلا ففارغ.', 'lv.level, ct.minutes, pr.code, cd.oldCode')
+      c('value', 'text', '', '', 'timer_start: its minutes; else empty.', 'timer_start: دقائقه؛ وإلا ففارغ.', 'ct.minutes')
     ] },
-    { file: 'student_days', from: 'server', one: ['student code and school day with play', 'رمز طالب ويوم دراسي لعب فيه'], columns: [
-      STUDENT, LINKED,
-      c('day', 'date', '', '', 'The school day.', 'اليوم الدراسي.'),
-      WEEKDAY,
-      c('band', 'category', '', BAND, 'The age group of the day’s first session.', 'الفئة العمرية في أول جلسة من اليوم.', 'envelope.a'),
-      count('sessions', 'Play sessions that day.', 'جلسات اللعب في ذلك اليوم.', 'ss'),
-      minutes('minutes', 'Engaged minutes that day.', 'دقائق اللعب الفعلي في ذلك اليوم.'),
-      count('opens', 'Games opened that day.', 'الألعاب التي فُتحت في ذلك اليوم.', 'go'),
-      count('games', 'Different games played that day.', 'عدد الألعاب المختلفة التي لُعبت في ذلك اليوم.', 'go.slug'),
-      count('rounds', 'Rounds ended that day.', 'الجولات المنتهية في ذلك اليوم.', 're'),
-      WINS, LOSSES, DRAWS,
-      count('ends', 'Rounds with a neutral end (endless runs, two-player modes).', 'الجولات ذات النهاية المحايدة (الجولات المتواصلة وأنماط اللاعبَين).', 're.code'),
-      QUITS, HITS, MISSES, RT_MEAN,
-      count('level_ups', 'Times the profile went up a level that day.', 'مرات ارتقاء الملف إلى مستوى أعلى في ذلك اليوم.', 'lv'),
-      c('first_time', 'time', '', '', 'When the day’s first session started.', 'وقت بدء أول جلسة في اليوم.', 'envelope.w'),
-      c('last_time', 'time', '', '', 'When the day’s latest session started.', 'وقت بدء آخر جلسة في اليوم.', 'envelope.w'),
-      count('pcs', 'PCs played on that day.', 'الأجهزة التي لُعب عليها في ذلك اليوم.', 'envelope.p')
-    ] },
-    { file: 'daily_games', from: 'server', one: ['day, clock, age group and game', 'يوم وساعة وفئة عمرية ولعبة'], columns: [
+    { file: 'daily_games', from: 'server', one: ['day, clock and game', 'يوم وساعة ولعبة'], columns: [
       c('day', 'date', '', '', 'The day.', 'اليوم.'),
-      c('clock', 'category', '', 'school, utc', 'school: a day on the school’s clock; utc: a day before the update, in world time (UTC) by when the server received the play, without students or hearts.',
-        'school: يوم بحسب ساعة المدرسة؛ utc: يوم قبل التحديث بالتوقيت العالمي (UTC) بحسب وقت استلام الخادم للعب، دون الطلاب والقلوب.'),
-      c('band', 'category', '', BAND, 'The age group of the sessions.', 'الفئة العمرية للجلسات.', 'envelope.a'),
+      c('clock', 'category', '', 'school, utc', 'school: a day on the school’s clock; utc: a day before the update, in world time (UTC) by when the server received the play, without hearts.',
+        'school: يوم بحسب ساعة المدرسة؛ utc: يوم قبل التحديث بالتوقيت العالمي (UTC) بحسب وقت استلام الخادم للعب، دون القلوب.'),
       GAME,
       count('sessions', 'Play sessions that opened the game.', 'جلسات اللعب التي فُتحت فيها اللعبة.', 'go'),
-      count('students', 'Different students who played it (each linked child once); empty on utc days.', 'عدد الطلاب المختلفين الذين لعبوها (كل طفل مرتبط مرة واحدة)؛ فارغ في أيام utc.', 'envelope.u'),
       count('opens', 'Times the game was opened.', 'مرات فتح اللعبة.', 'go'),
       minutes('minutes', 'Engaged minutes in the game.', 'دقائق اللعب الفعلي في اللعبة.'),
       count('starts', 'Rounds started.', 'الجولات التي بدأت.', 'rs'),
@@ -278,16 +204,12 @@
       c('build', 'text', '', '', 'The version of the games site the PC ran last.', 'إصدار موقع الألعاب الذي شغّله الجهاز آخر مرة.', 'envelope.k')
     ].concat(DEVICE, [
       count('sessions', 'Play sessions in the period.', 'جلسات اللعب خلال الفترة.', 'ss'),
-      count('students', 'Different students who played on it (each linked child once).', 'عدد الطلاب المختلفين الذين لعبوا عليه (كل طفل مرتبط مرة واحدة).', 'envelope.u'),
-      share('guest_share', 'Guest sessions / all sessions.', 'جلسات الضيوف / كل الجلسات.', 'envelope.u'),
       minutes('minutes', 'Engaged minutes in the period.', 'دقائق اللعب الفعلي خلال الفترة.'),
       share('smooth_share', 'Picture updates drawn within 20 ms / all picture updates.', 'تحديثات الصورة المرسومة خلال 20 ملّي ثانية / كل تحديثات الصورة.', 'gx.f', FRAMES),
       share('stall_share', 'Picture updates over 250 ms / all picture updates.', 'تحديثات الصورة التي تجاوزت 250 ملّي ثانية / كل تحديثات الصورة.', 'gx.f', FRAMES),
       c('avg_load_ms', 'integer', 'ms', '', 'The mean time a game took to load.', 'متوسط مدة تحميل اللعبة.', 'ld.loadMs'),
       share('slow_input_share', 'Key presses and clicks answered in 50 ms or more / all of them.', 'ضغطات المفاتيح والنقرات التي استُجيب لها في 50 ملّي ثانية فأكثر / كلها.', 'gx.il'),
-      count('failures', 'Games that failed to start.', 'الألعاب التي تعذّر بدؤها.', 'er'),
-      count('profiles_max', 'The most profiles the PC had at a session start (24 is full).', 'أكبر عدد من الملفات كان على الجهاز عند بدء جلسة (24 يعني امتلاءه).', 'ss.np'),
-      count('new_profiles', 'Profiles made on the PC in the period.', 'الملفات التي أُنشئت على الجهاز خلال الفترة.', 'ss.isNew')
+      count('failures', 'Games that failed to start.', 'الألعاب التي تعذّر بدؤها.', 'er')
     ]) },
     { file: 'games', from: 'browser', one: ['game of the games site', 'لعبة من موقع الألعاب'], columns: [
       c('game', 'text', 'slug', '', 'The game’s id (the game column of the other files).', 'معرّف اللعبة (عمود game في الملفات الأخرى).', 'js/catalog.js'),
@@ -300,7 +222,7 @@
         'طريقة اللعب: الفأرة، أو لوحة المفاتيح، أو زر واحد، أو الفأرة ولوحة المفاتيح معًا.', 'js/catalog.js'),
       c('has_levels', 'flag', '', '0, 1', '1 when the period’s rounds of the game have two or more round ids (levels or modes); empty when nobody played it.',
         '1 إذا كان لجولات اللعبة خلال الفترة معرّفان أو أكثر (مراحل أو أنماط)؛ فارغ إذا لم يلعبها أحد.', 'rs.id'),
-      c('dda', 'flag', '', '0, 1', '1 when the game adapts its difficulty to each child (tier and dda_level).', '1 إذا كانت اللعبة تكيّف صعوبتها لكل طفل (tier وdda_level).', 'games/ (Kit.dda)'),
+      c('dda', 'flag', '', '0, 1', '1 when the game adapts its difficulty to the play (tier and dda_level).', '1 إذا كانت اللعبة تكيّف صعوبتها بحسب اللعب (tier وdda_level).', 'games/ (Kit.dda)'),
       c('reports_hits', 'flag', '', '0, 1', '1 when the game counts hits and misses (accuracy).', '1 إذا كانت اللعبة تعدّ الإصابات والأخطاء (الدقة).', 'games/ (Kit.track)'),
       c('reports_reaction', 'flag', '', '0, 1', '1 when the game measures reaction times.', '1 إذا كانت اللعبة تقيس أزمنة الاستجابة.', 'games/ (Kit.track)'),
       c('reports_score', 'flag', '', '0, 1', '1 when the game passes a score.', '1 إذا كانت اللعبة تمرّر نتيجة.', 'Kit.stats.end'),
@@ -341,24 +263,18 @@
       'للنتيجة معنى مختلف في كل لعبة (games.csv)، فلا تقارن النتائج إلا داخل اللعبة الواحدة.'],
     ['Children choose their games, so comparisons between games are confounded by who chooses them.',
       'يختار الأطفال ألعابهم بأنفسهم، فالمقارنة بين الألعاب يشوبها اختلاف من يختار كل لعبة.'],
-    ['The age group is picked when the profile is made and does not move up a year. Use band_first as the cohort.',
-      'تُختار الفئة العمرية عند إنشاء الملف ولا تتقدم مع مرور السنين، فاستخدم band_first لتحديد الفوج.'],
-    ['Two-player rounds (two children on one PC) are left out of the per-student skill measures.',
-      'تُستبعد جولات اللاعبَين على جهاز واحد من مقاييس المهارة لكل طالب.'],
-    ['Identity errors happen: a child playing on another child’s profile (a tab left open; the 20-minute idle hand-over reduces this), a profile deleted and made again, a child on two PCs whose codes were never linked, a PC that forgets its profiles every night. Guests are never attributed to a student.',
-      'تقع أخطاء في الهوية: طفل يلعب على ملف طفل آخر (تبويب تُرك مفتوحًا، ويقلل التسليم بعد 20 دقيقة دون نشاط من ذلك)، أو ملف حُذف ثم أُنشئ من جديد، أو طفل على جهازين لم يُربط رمزاه، أو جهاز ينسى ملفاته كل ليلة. ولا يُنسب لعب الضيوف إلى أي طالب.'],
-    ['Data is missing not at random: PCs where a teacher stopped the statistics, browsers that send Global Privacy Control, the offline copy of the site (which never sends), and PCs on the old version (student unknown).',
-      'البيانات الناقصة ليست عشوائية: الأجهزة التي أوقف فيها المعلم الإحصاءات، والمتصفحات التي ترسل إشارة التحكم العام في الخصوصية، والنسخة غير المتصلة من الموقع (لا ترسل شيئًا)، وأجهزة الإصدار القديم (الطالب غير معروف).'],
-    ['attempt is the order in which the server received a code’s rounds of a game; on one PC that is the order of play. Numbering starts again for a new code unless the codes were linked before that play. Re-rank by time in your analysis if needed.',
-      'attempt هو ترتيب استلام الخادم لجولات رمز ما في لعبة ما، وهو على الجهاز الواحد ترتيب اللعب نفسه. ويبدأ العدّ من جديد لرمز جديد ما لم يُربط الرمزان قبل ذلك اللعب. أعد الترتيب حسب الوقت في تحليلك إن احتجت.'],
+    ['Rows are play, not children: a session is play on one PC between hand-overs, and one child may play many sessions or share one with others. Nothing in the files tells children apart, so count sessions, visits and rounds, never children.',
+      'الصفوف لعبٌ لا أطفال: الجلسة لعب على جهاز واحد بين تسليمين، وقد يلعب طفل واحد جلسات كثيرة أو يشترك فيها مع غيره. ولا شيء في الملفات يميّز طفلًا من طفل، فاعدد الجلسات والزيارات والجولات لا الأطفال.'],
+    ['Two-player rounds (two children on one PC) are left out of the skill measures.',
+      'تُستبعد جولات اللاعبَين على جهاز واحد من مقاييس المهارة.'],
+    ['Data is missing not at random: PCs where a teacher stopped the statistics, browsers that send Global Privacy Control, the offline copy of the site (which never sends), and PCs on the old version (fewer details).',
+      'البيانات الناقصة ليست عشوائية: الأجهزة التي أوقف فيها المعلم الإحصاءات، والمتصفحات التي ترسل إشارة التحكم العام في الخصوصية، والنسخة غير المتصلة من الموقع (لا ترسل شيئًا)، وأجهزة الإصدار القديم (تفاصيل أقل).'],
     ['Times are the session’s start (the server’s clock less the seconds the PC counted) plus the seconds into the session. Rows with clock_source r are estimated from the time the server received them.',
       'الأوقات هي بدء الجلسة (ساعة الخادم مطروحًا منها الثواني التي عدّها الجهاز) مضافًا إليه الثواني منذ بدء الجلسة. والصفوف التي clock_source فيها r مقدّرة من وقت استلام الخادم لها.'],
     ['Days before the update (clock utc in daily_games.csv) are world-time (UTC) days by when the server received the play, with totals only.',
       'الأيام التي سبقت التحديث (clock = utc في daily_games.csv) أيام بالتوقيت العالمي (UTC) بحسب وقت استلام الخادم للعب، وفيها المجاميع فقط.'],
-    ['Use the paired comparisons for growth (the same children early and late); weekly averages mix new players with practised ones.',
-      'استخدم المقارنات المزدوجة لقياس التحسن (الأطفال أنفسهم في البداية والنهاية)، فالمتوسطات الأسبوعية تخلط اللاعبين الجدد بالمتمرّسين.'],
-    ['Small numbers (fewer than 5 children or 20 tries) carry a chip on the dashboard. Read them as early signs, not findings.',
-      'تحمل الأرقام الصغيرة (أقل من 5 أطفال أو 20 محاولة) علامة في لوحة المتابعة، فاقرأها إشارات مبكرة لا نتائج.']
+    ['Small numbers (fewer than 20 tries) carry a chip on the dashboard. Read them as early signs, not findings.',
+      'تحمل الأرقام الصغيرة (أقل من 20 محاولة) علامة في لوحة المتابعة، فاقرأها إشارات مبكرة لا نتائج.']
   ];
 
   // ---- CSV ------------------------------------------------------------------------------------
@@ -411,7 +327,7 @@
     if (i.part > 1) {
       en.push('This is part ' + i.part + ' of the download: each file continues where part ' + (i.part - 1) + ' stopped. Add the parts’ rows together; no row is in two parts.',
         'The parts were made on different days: play that reached the server in between is in the later parts only, so they can hold visits, rounds and',
-        'events of sessions that are in no sessions.csv, and children missing from students.csv. Keep the rows whose session is in sessions.csv, or download',
+        'events of sessions that are in no sessions.csv. Keep the rows whose session is in sessions.csv, or download',
         'a period that ends yesterday or earlier in one go.');
     }
     if (i.stopped) en.push('This part stopped early, in ' + i.stopped.file + '.csv (today’s free reading allowance ran out). The next part continues from there;',
@@ -420,18 +336,16 @@
     files.forEach(function (f) { var one = oneOf(f.name); en.push(f.name + ': ' + rowsOf(f) + (one ? ', one per ' + one[0] : '')); });
     en.push('README.txt: this file. labels.sps: SPSS labels. load.R: an R loader.', '');
     en.push('IDENTIFIERS', '-----------',
-      'No names are collected, and nothing a child types. Each profile (a child who picks an animal on a PC) has a student code: 12 random hex digits, the same for',
-      'that profile in every file. student_label is the start of the code as the dashboard shows it ("Student 7F3A"). A child who plays on two PCs has two codes',
-      'unless a teacher gave both profiles the same code on the teacher page, or the owner linked them on the dashboard; student_linked is the code a child counts',
-      'under after those links, so group by student_linked. Guests (children who did not pick an animal) have an empty student and are counted in totals, never as',
-      'students. Each PC has its own random code. Session codes are random too.', '');
+      'No names are collected, nothing a child types, and nothing that tells children apart or says how old they are.',
+      'Each PC has its own random code (pc). Each session has a random code too (session); it is play on one PC until the hand-over button or',
+      '20 quiet minutes, whoever played. Count sessions, visits and rounds, never children.', '');
     en.push('TIME', '----',
       'Days, weekdays (1 = Sunday … 7 = Saturday) and times are the school’s clock (' + (i.tz || 'UTC') + '). Each session’s start is the time the server received',
       'it less the seconds the PC counted since the start, so a PC with a wrong clock still dates its play right; start_utc is the same moment in world time.', '');
     var history = [];
     if (i.legacyUntil) history.push('Up to ' + i.legacyUntil + ': milestone 2. Daily totals only, on world-time (UTC) days by when the server received the play (daily_games.csv, clock utc).');
     if (i.factsSince) history.push('From ' + i.factsSince + ': play is kept row by row, on the school’s clock.');
-    if (i.v3Since) history.push('From ' + i.v3Since + ': the first PC on the new version (wire 3): student and PC codes, exact ages and counts. PCs not updated yet send wire 2 (kind unknown).');
+    if (i.v3Since) history.push('From ' + i.v3Since + ': the first PC on the new version (wire 3): PC codes, exact counts and the school’s clock. PCs not updated yet send wire 2.');
     if (history.length) { en.push('VERSION HISTORY', '---------------'); en.push.apply(en, history.concat([''])); }
     en.push('THINGS TO KNOW BEFORE ANALYSING', '-------------------------------');
     NOTES.forEach(function (n, k) { en.push((k + 1) + '. ' + n[0]); });
@@ -442,15 +356,15 @@
       'SPSS: run labels.sps from the folder of the files (it uses GET DATA /TYPE=TXT /ENCODING=\'UTF8\').',
       'R: source("load.R") in the folder of the files, or read.csv(f, fileEncoding = "UTF-8-BOM", na.strings = "").', '');
     en.push('EXAMPLE MODELS', '--------------',
-      'Learning by practice, with each child, PC and game as random effects (R, lme4), on rounds.csv without two-player rounds:',
+      'Learning by practice within a visit, with each PC and game as random effects (R, lme4), on rounds.csv without two-player rounds:',
       '  r <- subset(rounds, two_player == 0 & outcome %in% c("win", "loss"))',
       '  r$win <- r$outcome == "win"',
-      '  lme4::glmer(win ~ log(attempt) * band + (1 + log(attempt) | student_linked) + (1 | pc) + (1 | game), data = r, family = binomial)',
+      '  lme4::glmer(win ~ log(round) + (1 | pc) + (1 | game), data = r, family = binomial)',
       'SPSS: GENLINMIXED with a binary target, or for a continuous measure (for example rt_mean_ms):',
-      '  MIXED rt_mean_ms BY band WITH attempt /FIXED=band attempt band*attempt /RANDOM=INTERCEPT attempt | SUBJECT(student_linked).', '');
+      '  MIXED rt_mean_ms WITH round /FIXED=round /RANDOM=INTERCEPT | SUBJECT(pc).', '');
     en.push('CARE', '----',
-      'These are pseudonymous records of individual children. Keep them like other school records, and check your rules on research with children before',
-      'publishing. Parents should know the school keeps them.', '');
+      'These are records of play on the school\'s PCs, with no names and no codes for children. Keep them like other school records, and check your rules',
+      'on research with children before publishing. Parents should know the school keeps them.', '');
 
     ar.push('ألعاب الفسحة: ملفات البحث', '========================', '');
     ar.push('اللعب على موقع ألعاب المدرسة من ' + i.from + ' إلى ' + i.to + '، بحسب ساعة المدرسة (' + (i.tz || 'UTC') + ')، صُدّرت في ' + (i.exported || '') + '.');
@@ -458,7 +372,7 @@
     if (i.part > 1) {
       ar.push('هذا هو الجزء ' + i.part + ' من التنزيل: يكمل كل ملف من حيث توقف الجزء ' + (i.part - 1) + '. اجمع صفوف الأجزاء معًا، فلا يتكرر صف في جزأين.',
         'صُنعت الأجزاء في أيام مختلفة: اللعب الذي وصل إلى الخادم بينها موجود في الأجزاء اللاحقة وحدها، فقد تحوي زيارات وجولات وأحداثًا لجلسات',
-        'لا توجد في أي ملف sessions.csv، ويغيب أطفالها عن students.csv. أبقِ الصفوف التي توجد جلستها في sessions.csv، أو نزّل دفعة واحدة فترةً تنتهي أمس أو قبله.');
+        'لا توجد في أي ملف sessions.csv. أبقِ الصفوف التي توجد جلستها في sessions.csv، أو نزّل دفعة واحدة فترةً تنتهي أمس أو قبله.');
     }
     if (i.stopped) ar.push('توقف هذا الجزء مبكرًا في ' + i.stopped.file + '.csv (نفدت حصة القراءة المجانية لليوم)، ويكمل الجزء التالي من هناك؛',
       'واللعب الذي يصل إلى الخادم قبل ذلك سيكون في الجزء التالي وحده.');
@@ -466,17 +380,16 @@
     files.forEach(function (f) { var one = oneOf(f.name); ar.push(f.name + ': ' + arRows(f.rows) + (one ? '، صف لكل ' + one[1] : '')); });
     ar.push('README.txt: هذا الملف. labels.sps: تسميات SPSS. load.R: برنامج تحميل للغة R.', '');
     ar.push('الرموز', '------',
-      'لا تُجمع الأسماء ولا أي شيء يكتبه الطفل. لكل ملف (طفل يختار حيوانه على جهاز) رمز طالب من 12 خانة ست عشرية عشوائية، وهو نفسه لهذا الملف في كل الملفات.',
-      'student_label بداية الرمز كما تعرضها لوحة المتابعة («الطالب 7F3A»). الطفل الذي يلعب على جهازين له رمزان، إلا إذا أعطى المعلم الملفين الرمز نفسه من صفحة المعلم',
-      'أو ربطهما المسؤول في لوحة المتابعة؛ وstudent_linked هو الرمز الذي يُحسب تحته الطفل بعد هذا الربط، فاجمع الصفوف به. أما الضيوف (من لم يختر حيوانًا) فعمود',
-      'student لهم فارغ، ويُحسبون في المجاميع ولا يُحسبون طلابًا أبدًا. ولكل جهاز رمزه العشوائي، ورموز الجلسات عشوائية كذلك.', '');
+      'لا تُجمع الأسماء ولا أي شيء يكتبه الطفل ولا ما يميّز طفلًا من طفل أو يدل على عمره.',
+      'لكل جهاز رمزه العشوائي (pc)، ولكل جلسة رمز عشوائي كذلك (session)، وهي لعب على جهاز واحد حتى زر التسليم أو عشرين دقيقة دون لمس، أيًّا كان من لعب.',
+      'فاعدد الجلسات والزيارات والجولات، لا الأطفال.', '');
     ar.push('الوقت', '-----',
       'الأيام وأيام الأسبوع (1 الأحد … 7 السبت) والأوقات بحسب ساعة المدرسة (' + (i.tz || 'UTC') + '). بدء كل جلسة هو وقت استلام الخادم لها مطروحًا منه الثواني التي عدّها',
       'الجهاز منذ البدء، فيُؤرَّخ لعب الجهاز صحيحًا ولو كانت ساعته خاطئة؛ وstart_utc هو اللحظة نفسها بالتوقيت العالمي.', '');
     var historyAr = [];
     if (i.legacyUntil) historyAr.push('حتى ' + i.legacyUntil + ': المرحلة الثانية. مجاميع يومية فقط، بأيام التوقيت العالمي (UTC) حسب وقت استلام الخادم للعب (daily_games.csv، clock = utc).');
     if (i.factsSince) historyAr.push('من ' + i.factsSince + ': يُحفظ اللعب صفًّا صفًّا، بحسب ساعة المدرسة.');
-    if (i.v3Since) historyAr.push('من ' + i.v3Since + ': أول جهاز بالإصدار الجديد (الإصدار 3): رموز الطلاب والأجهزة، والأعمار والأعداد الدقيقة. والأجهزة التي لم تُحدَّث بعد ترسل الإصدار 2 (kind = unknown).');
+    if (i.v3Since) historyAr.push('من ' + i.v3Since + ': أول جهاز بالإصدار الجديد (الإصدار 3): رموز الأجهزة والأعداد الدقيقة وساعة المدرسة. والأجهزة التي لم تُحدَّث بعد ترسل الإصدار 2.');
     if (historyAr.length) { ar.push('تاريخ الإصدارات', '---------------'); ar.push.apply(ar, historyAr.concat([''])); }
     ar.push('ما يجب معرفته قبل التحليل', '------------------------');
     NOTES.forEach(function (n, k) { ar.push((k + 1) + '. ' + n[1]); });
@@ -487,9 +400,9 @@
       'SPSS: شغّل labels.sps من مجلد الملفات (يستخدم GET DATA /TYPE=TXT /ENCODING=\'UTF8\').',
       'R: نفّذ source("load.R") في مجلد الملفات، أو read.csv(f, fileEncoding = "UTF-8-BOM", na.strings = "").', '');
     ar.push('نماذج للتحليل', '------------',
-      'التعلّم بالممارسة، مع كل طفل وجهاز ولعبة أثرًا عشوائيًا (R، الحزمة lme4)، على rounds.csv دون جولات اللاعبَين: انظر المثال الإنجليزي أعلاه، فالشيفرة واحدة.', '');
+      'التعلّم بالممارسة داخل الزيارة، مع كل جهاز ولعبة أثرًا عشوائيًا (R، الحزمة lme4)، على rounds.csv دون جولات اللاعبَين: انظر المثال الإنجليزي أعلاه، فالشيفرة واحدة.', '');
     ar.push('العناية بالبيانات', '----------------',
-      'هذه سجلات بأسماء مستعارة لأطفال أفراد. احفظها كما تحفظ سجلات المدرسة الأخرى، وراجع قواعد البحث مع الأطفال المعمول بها لديك قبل النشر.',
+      'هذه سجلات لعب على أجهزة المدرسة، دون أسماء ودون رموز للأطفال. احفظها كما تحفظ سجلات المدرسة الأخرى، وراجع قواعد البحث مع الأطفال المعمول بها لديك قبل النشر.',
       'وينبغي أن يعلم أولياء الأمور أن المدرسة تحتفظ بها.', '');
     return en.join('\n') + '\n' + ar.join('\n');
   }
@@ -533,9 +446,8 @@
     return out.join('\n') + '\n';
   }
   var R_CLASS = { code: 'character', text: 'character', category: 'character', integer: 'integer', decimal: 'numeric', flag: 'integer', date: 'Date', time: 'character', datetime: 'character' };
-  var BAND_LEVELS = ['6-7', '8-9', '10-11'];
-  // load.R: reads every file of the download with each column's class, the categories as
-  // factors in their listed order and the age groups in age order ("" is not set: NA).
+  // load.R: reads every file of the download with each column's class and the categories as
+  // factors in their listed order.
   function rLoader(names) {
     var out = ['# Loads the school games research files into R: run source("load.R") in the folder that holds them.',
       '# Missing values are empty cells; the files are UTF-8 with a byte-order mark.',
@@ -552,8 +464,7 @@
       out.push(v + ' <- read_sg(c(' + files.map(function (n) { return '"' + n + '"'; }).join(', ') + '), c(' +
         f.columns.map(function (col) { return col[0] + ' = "' + R_CLASS[col[1]] + '"'; }).join(', ') + '))');
       f.columns.forEach(function (col) {
-        if (/^band/.test(col[0]) && col[1] === 'category') out.push(v + '$' + col[0] + ' <- factor(' + v + '$' + col[0] + ', levels = c(' + BAND_LEVELS.map(function (b) { return '"' + b + '"'; }).join(', ') + '))');
-        else if (col[0] === 'weekday') out.push(v + '$weekday <- factor(' + v + '$weekday, levels = 1:7, labels = c(' + WEEKDAYS.map(function (d) { return '"' + d + '"'; }).join(', ') + '))');
+        if (col[0] === 'weekday') out.push(v + '$weekday <- factor(' + v + '$weekday, levels = 1:7, labels = c(' + WEEKDAYS.map(function (d) { return '"' + d + '"'; }).join(', ') + '))');
         else if (words(col).length > 1) out.push(v + '$' + col[0] + ' <- factor(' + v + '$' + col[0] + ', levels = c(' + words(col).map(function (w) { return '"' + w + '"'; }).join(', ') + '))');
       });
       out.push('');
@@ -565,10 +476,10 @@
   var mdCell = function (s) { return String(s).replace(/\|/g, '\\|'); };
   function markdown() {
     var out = ['# Research data: the dictionary and how to read it', '',
-      '<!-- Written by `node server/dashboard/dictionary.js --md > docs/RESEARCH_DATA.md` from server/dashboard/dictionary.js; do not edit by hand. -->', '',
+      '<!-- Written by `node dashboard/dictionary.js --md > RESEARCH_DATA.md` from dashboard/dictionary.js; do not edit by hand. -->', '',
       'The dashboard\'s **Data & settings** tab downloads the school\'s play as research files: `school-games-data_<from>_<to>.zip`, one CSV file per',
       'kind of row plus `games.csv`, `dictionary.csv` (this page as a table), `README.txt` (in English and Arabic), `labels.sps` (SPSS) and `load.R` (R).',
-      'The server writes the rows (`GET /v1/admin/export`, `server/README.md`); the browser adds the headers, the byte-order mark and the other files.',
+      'The server writes the rows (`GET /v1/admin/export`, `README.md`); the browser adds the headers, the byte-order mark and the other files.',
       'The design is in `docs/RESEARCH_TELEMETRY_SPEC.md` (§E, §F.6).', '',
       '## The files', '',
       '| File | One row per | Written by |', '|---|---|---|'];
@@ -578,18 +489,15 @@
       'server\'s files needs quoting: each is a number, a date, a time or a validated token. `rounds.csv` becomes `rounds-YYYY-MM.csv` when the period',
       'has more than 500,000 rounds (Excel stops at 1,048,576 rows).', '',
       '## How the measures are made', '',
-      '* **Students.** A student is a profile\'s random code (`student`); `student_linked` is the code a child counts under after a teacher\'s code',
-      '  transfer or the owner\'s link, so a child on two PCs can be one student. Guests are counted in totals, never as students. There are no names.',
+      '* **No children in the data.** Nothing tells children apart or says how old they are, and there are no names: rows are play on a PC (`pc`) in a session',
+      '  (`session`), so count sessions, visits and rounds, never children.',
       '* **Engaged time** (`minutes`, `engaged_s`, `engaged_ms`) is time with a key press or click in the last 20 seconds; a visit that never closed',
       '  still counts its running time.',
-      '* **Sessions** start when a child (or a guest) starts playing and end at the hand-over button, another player, 20 quiet minutes or the',
-      '  page closing (`end_reason`). A whole session counts on the school day it started.',
-      '* **Attempts** number a code\'s ended rounds of a game in the order the server received them (`attempt`); two-player rounds are left out of',
-      '  skill measures (`two_player`).',
+      '* **Sessions** start when play starts on a PC and end at the hand-over button, 20 quiet minutes or the page closing (`end_reason`).',
+      '  A whole session counts on the school day it started. Two-player rounds are left out of skill measures (`two_player`).',
       '* **What came after a round** (the dashboard\'s persistence charts): the next round of the visit on the same level, another level, another',
       '  game later in the session, or nothing.',
-      '* **Paired growth** compares the same children in the first and the last third of a period, each child weighing the same.',
-      '* **Small samples** (fewer than 5 children or 20 tries) are shown with a "based on 2 children" chip, never hidden.', '',
+      '* **Small samples** (fewer than 20 tries) are shown with a "based on 12 tries" chip, never hidden.', '',
       '## Things to know before analysing', '');
     NOTES.forEach(function (n, k) { out.push((k + 1) + '. ' + n[0], '   ' + n[1]); });
     out.push('', '## The columns', '',

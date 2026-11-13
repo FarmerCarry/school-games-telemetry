@@ -11,7 +11,7 @@ import { JsonText, SENT } from './admin.mjs';
 import { zoneName } from './clock.mjs';
 import { FILES } from './export.mjs';
 import { METRICS } from './rollups.mjs';
-import { U_RE, WIRES, isSlug, validateBatch } from './schema.mjs';
+import { WIRES, isSlug, validateBatch } from './schema.mjs';
 import { SCHEMA_VERSION, utcDay } from './store.mjs';
 
 export const MAX_BODY = 64 * 1024;
@@ -19,8 +19,6 @@ export const MAX_ADMIN_BODY = 4 * 1024;
 export const MAX_RANGE_DAYS = 366;
 const DAY_MS = 86400000;
 const BUCKET_CAP = 100000;
-// The band query value and the stored band ('' is unknown).
-const KPI_BANDS = { all: null, '6-7': '6-7', '8-9': '8-9', '10-11': '10-11', unknown: '' };
 const encoder = new TextEncoder();
 
 // An answer other than 2xx: { error: message, ...more }.
@@ -30,11 +28,12 @@ export class HttpError extends Error {
 // The admin routes: each method they take (HEAD goes with GET) and the guard it passes:
 // read (an admin read: 429 once today's reads pass 4.2 million), export (an export page:
 // 3.5 million), write (an action that writes: 90,000 writes) or none (live and settings).
+// There is no route for a student, a profile or an age group (students, student, cohorts,
+// forget and link went with schema 5): they answer 404 like any unknown path.
 const ADMIN = {
   kpis: { GET: 'read' }, live: { GET: null }, settings: { GET: null, POST: null },
-  students: { GET: 'read' }, student: { GET: 'read' }, game: { GET: 'read' }, stats: { GET: 'read' }, cohorts: { GET: 'read' },
-  pcs: { GET: 'read' }, export: { GET: 'export' },
-  forget: { POST: 'write' }, link: { POST: 'write', DELETE: 'write' }, rebuild: { POST: 'write' }
+  game: { GET: 'read' }, stats: { GET: 'read' }, pcs: { GET: 'read' }, export: { GET: 'export' },
+  rebuild: { POST: 'write' }
 };
 const SETTINGS_FIELDS = new Set(['tz', 'source', 'weekStart', 'keepDays']);
 
@@ -115,24 +114,18 @@ const validDay = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) &&
   Number.isFinite(Date.parse(v + 'T00:00:00Z')) && utcDay(Date.parse(v + 'T00:00:00Z')) === v;
 
 // from/to default to the 30 days ending today (the school's day when the store knows it).
+// Any other parameter is ignored (an older dashboard's band among them).
 function kpiParams(query, today) {
   const to = query.get('to') ?? today;
   if (!validDay(to)) throw new HttpError(400, 'to');
   const from = query.get('from') ?? utcDay(Date.parse(to + 'T00:00:00Z') - 29 * DAY_MS);
   if (!validDay(from) || from > to) throw new HttpError(400, 'from');
   if ((Date.parse(to) - Date.parse(from)) / DAY_MS + 1 > MAX_RANGE_DAYS) throw new HttpError(400, 'range');
-  const band = query.get('band') ?? 'all';
-  if (!Object.hasOwn(KPI_BANDS, band)) throw new HttpError(400, 'band');
-  return { from, to, band: KPI_BANDS[band] };
+  return { from, to };
 }
 
-// A query parameter that must match: a student code, a game, the r_stat metrics (a
-// comma-separated subset, answered in the contract's order) or an export file.
-function code(query, name) {
-  const value = query.get(name);
-  if (typeof value !== 'string' || !U_RE.test(value)) throw new HttpError(400, name);
-  return value;
-}
+// A query parameter that must match: a game, the r_stat metrics (a comma-separated subset,
+// answered in the contract's order) or an export file.
 function slugParam(query, name, optional = false) {
   const value = query.get(name);
   if (value === null && optional) return null;
@@ -150,10 +143,6 @@ function fields(body, names) {
   const field = Object.keys(body).find(key => !names.includes(key));
   if (field !== undefined) throw new HttpError(400, 'field');
   return body;
-}
-function bodyCode(body, name) {
-  if (typeof body[name] !== 'string' || !U_RE.test(body[name])) throw new HttpError(400, name);
-  return body[name];
 }
 
 // An export page: its CSV lines (each ending in a line break, as SQL joined them), how many,
@@ -226,12 +215,10 @@ export function createHandler(options) {
     return store.batchEvery?.(t);
   }
 
-  // A JSON body of at most MAX_ADMIN_BODY bytes, sent as application/json (optional: an
-  // empty body is no body).
-  async function jsonBody(request, optional = false) {
+  // A JSON body of at most MAX_ADMIN_BODY bytes, sent as application/json.
+  async function jsonBody(request) {
     const type = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     const raw = await readBody(request, MAX_ADMIN_BODY);
-    if (optional && !raw.byteLength) return null;
     if (type !== 'application/json') throw new HttpError(415, 'content type');
     try { return JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(raw)); } catch { throw new HttpError(400, 'json'); }
   }
@@ -244,28 +231,14 @@ export function createHandler(options) {
       case 'live GET': return store.live(t);
       case 'settings GET': return store.settings(t);
       case 'settings POST': return store.updateSettings(settingsBody(body), t);
-      case 'students GET': {
-        // A later page starts after the code `after` (its answer's next).
-        const after = query.has('after') ? code(query, 'after') : null;
-        return store.students({ ...period(), after }, t);
-      }
-      case 'student GET': { const u = code(query, 'u'); return store.student({ ...period(), u }, t); }
       case 'game GET': { const slug = slugParam(query, 'slug'); return store.game({ ...period(), slug }, t); }
       case 'stats GET': { const metrics = metricsParam(query), slug = slugParam(query, 'slug', true); return store.stats({ ...period(), metrics, slug }, t); }
-      case 'cohorts GET': return store.cohorts(period(), t);
       case 'pcs GET': { const { from, to } = period(); return store.pcs({ from, to }, t); }
       case 'export GET': {
         const file = query.get('file');
         if (!FILES.includes(file)) throw new HttpError(400, 'file');
         const { from, to } = period();
         return store.exportPage({ file, from, to, after: query.get('after') }, t).then(page => page.error ? page : new CsvPage(page.text, page.rows, page.next));
-      }
-      case 'forget POST': return store.forget({ u: bodyCode(fields(body, ['u']), 'u') }, t);
-      case 'link POST': { const b = fields(body, ['u', 'to']); return store.link({ u: bodyCode(b, 'u'), to: bodyCode(b, 'to') }, t); }
-      case 'link DELETE': {
-        // The code from the query (DELETE /v1/admin/link?u=), or from a JSON body { u }.
-        if (query.has('u') || body === null) return store.unlink({ u: code(query, 'u') }, t);
-        return store.unlink({ u: bodyCode(fields(body, ['u']), 'u') }, t);
       }
       case 'rebuild POST': fields(body, []); return store.rebuild(t);
     }
@@ -280,10 +253,9 @@ export function createHandler(options) {
       throw new HttpError(405, 'method', { Allow: allow.join(', ') });
     }
     if (!(await authorized(request))) throw new HttpError(401, 'unauthorized', { 'WWW-Authenticate': 'Bearer realm="telemetry"' });
-    // POST takes a JSON body; DELETE may (its code can also be in the query).
+    // POST takes a JSON body.
     let body = null;
     if (method === 'POST') body = await jsonBody(request);
-    else if (method === 'DELETE' && request.body && request.headers.get('content-length') !== '0') body = await jsonBody(request, true);
     const t = now();
     await ready(t);
     const stop = route[method] ? await store.guard?.(route[method], t) : null;
@@ -310,7 +282,7 @@ export function createHandler(options) {
       if (wait) throw new HttpError(429, 'rate limited', { 'Retry-After': String(wait) });
       const url = new URL(request.url), { pathname } = url, method = request.method;
       if (method === 'OPTIONS') {
-        const preflight = headers['Access-Control-Allow-Origin'] ? { 'Access-Control-Allow-Methods': 'GET, HEAD, POST, DELETE, OPTIONS',
+        const preflight = headers['Access-Control-Allow-Origin'] ? { 'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Max-Age': '86400' } : {};
         return send(204, undefined, preflight);
       }

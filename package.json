@@ -1,13 +1,15 @@
 {
   "name": "school-games-telemetry",
   "private": true,
-  "description": "Play statistics without names for the school games portal, with the insights dashboard: a Cloudflare Worker on a free D1 database, or Node on one SQLite file.",
+  "description": "Anonymous play statistics for the school games portal (no names, no accounts, no ages), with the insights dashboard: a Cloudflare Worker on a free D1 database, or Node on one SQLite file.",
   "engines": { "node": ">=22.13" },
   "scripts": {
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "node main.mjs",
-    "simulate": "node simulate.mjs"
+    "simulate": "node simulate.mjs",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs",
+    "demo": "node dashboard/make-demo.mjs"
   },
   "devDependencies": {
     "wrangler": "4.149.0"
@@ -18,7 +20,7 @@
         "description": "The password for the insights dashboard. Make one up: at least 16 English letters or digits, with no spaces. Write it down: you type it to open the dashboard, and Cloudflare keeps it secret and cannot show it to you again (it can only be replaced)."
       },
       "DB": {
-        "description": "The database that keeps the play statistics (no names, each child under a random code). Keep the suggested name; Cloudflare creates it for you."
+        "description": "The database that keeps the play statistics (no names and no accounts: every play session is anonymous). Keep the suggested name; Cloudflare creates it for you."
       }
     }
   }

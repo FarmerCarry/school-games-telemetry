@@ -1,11 +1,11 @@
 /*
  * The insights dashboard's shell: sign in, the hash router and tab bar, the filter
  * row, data loading, timers, and the Overview. The other tabs are their own scripts
- * (students.js, games.js, habits.js, learning.js, pcs.js, data.js), each registering
+ * (games.js, habits.js, pcs.js, data.js), each registering
  * window.SGTabs.<name> = { load(ctx), render(ctx, view, data) }; ctx is the shared
  * toolbox built here (requests, words, formats, cards, charts).
  *
- * Data: the /v1/admin/* answers (server/README.md) with the dashboard password as a
+ * Data: the /v1/admin/* answers (README.md) with the dashboard password as a
  * Bearer token. ?demo uses the bundled demo/*.json answers instead and sends nothing.
  * ?api=<origin> points the page at another server, only while the page itself is
  * opened from this computer (localhost), so a crafted link can never send the
@@ -15,17 +15,17 @@
  * (clock: { tz, source, offsetMin, today }); a server without it means UTC.
  * Each tab loads its endpoints only when it is opened (and on Refresh); only the
  * Overview's numbers (every 5 minutes) and "playing now" (every 30 s) refresh themselves.
+ * Play is anonymous: the server keeps sessions, game visits and rounds per PC, never who
+ * played, so every number here is about play, not about a child.
  */
 (function () {
   'use strict';
   var KPI_EVERY_MS = 5 * 60000, LIVE_EVERY_MS = 30000, MAX_RANGE = 366;
   var PERIODS = [1, 7, 30, 90, 'year', 'custom'], DEMO_PERIODS = [1, 7, 30, 90];
-  var BANDS = ['all', '6-7', '8-9', '10-11', 'unknown'];
-  var TABS = ['overview', 'students', 'games', 'habits', 'learning', 'pcs', 'data'];
+  var TABS = ['overview', 'games', 'habits', 'pcs', 'data'];
   var KEY = { lang: 'sg:dash:lang', theme: 'sg:dash:theme', token: 'sg:dash:token', tab: 'sg:dash:tab', period: 'sg:dash:period' };
   var TOP = 10;
-  var GUEST_ADVICE = 0.25;   // a quarter of the play time or more as a guest: ask children to tap their animal
-  var CODE_RE = /^[0-9a-f]{12}$/, SLUG_RE = /^[a-z0-9-]{1,40}$/;
+  var SLUG_RE = /^[a-z0-9-]{1,40}$/;
 
   var I = window.SGInsights, R = window.SGResearch, C = window.SGCharts, TEXT = window.SGDashText, h = C.h;
   var TABS_IMPL = window.SGTabs = window.SGTabs || {};
@@ -49,13 +49,13 @@
     theme: storedTheme === 'dark' || storedTheme === 'light' ? storedTheme : null,
     token: load(KEY.token),
     demo: params.has('demo'),
-    period: 30, custom: null, customError: null, band: 'all',
+    period: 30, custom: null, customError: null,
     route: { tab: 'overview', arg: '', parent: 'overview' },
     live: null, liveAt: null, viewAt: null,
     clock: null, settings: null, clockPosted: false, clockOpen: false, clockNotice: null, zoneMoved: false,
     loading: false, seq: 0, gen: 0, notice: null, signinError: null,
     views: {}, cache: {}, demoCache: {},
-    tables: {}, expanded: {}, choice: {}, sort: {}, page: {}, search: '', game: 'all'
+    tables: {}, expanded: {}, choice: {}
   };
   var t = function () { return TEXT[state.lang]; };
   var rtl = function () { return state.lang === 'ar'; };
@@ -149,7 +149,7 @@
       .then(function (res) {
         return res.json().catch(function () { return null; }).then(function (json) {
           if (res.status === 401) throw new Failure('wrong', 401);
-          // 404 is "the password was never set", or an older server without this endpoint.
+          // 404 is "the password was never set", or a server without this endpoint.
           if (res.status === 404) throw new Failure(json && json.error === 'admin password not set' ? 'notSet' : 'missing', 404, json);
           if (res.status === 429) throw new Failure('busy', 429, json);
           if (res.status === 503 && json && json.error === 'updating') throw new Failure('updating', 503, json);
@@ -184,7 +184,7 @@
   function failureText(f) {
     var T = t();
     if (f && f.kind === 'network') return T.errNetwork;
-    if (f && f.kind === 'missing') return f.body && f.body.error === 'student' ? T.studentUnknown : T.oldServer;
+    if (f && f.kind === 'missing') return T.oldServer;
     if (f && f.kind === 'demoMissing') return T.demoMissing;
     if (f && f.kind === 'updating') return T.errUpdating;
     if (f && f.kind === 'busy') return f.body && f.body.error === 'reads' ? T.errReads(f.body.until || '') : f.body && f.body.error === 'writes' ? T.errWrites : T.errBusy;
@@ -196,58 +196,38 @@
   function query(name, q) {
     var r = q.range || range(), parts = [];
     var put = function (k, v) { if (v !== undefined && v !== null && v !== '') parts.push(k + '=' + encodeURIComponent(v)); };
-    if (name === 'student') put('u', q.u);
     if (name === 'game') put('slug', q.slug);
     if (name !== 'live' && name !== 'settings') { put('from', r.from); put('to', r.to); }
     if (name === 'stats') put('metrics', q.metrics.join(','));
-    if (q.band && q.band !== 'all') put('band', q.band);
     if (name === 'stats') put('slug', q.slug);
     return '/v1/admin/' + name + (parts.length ? '?' + parts.join('&') : '');
   }
   // Demo mode: the bundled answers (demo/, written by make-demo.mjs from the real
-  // server), fetched once each; the band, metric and game filters the server would apply
-  // are applied here.
+  // server), fetched once each; the metric and game filters the server would apply are
+  // applied here.
   function demoFile(name, q) {
     var p = DEMO_PERIODS.indexOf(state.period) >= 0 ? state.period : 30;
-    if (name === 'kpis') return 'kpis-' + p + '-' + (q.band && q.band !== 'all' && q.band !== 'unknown' ? q.band : 'all') + '.json';
-    if (name === 'students' || name === 'stats') return name + '-' + p + '.json';
-    if (name === 'cohorts') return 'cohorts-90.json';
+    if (name === 'kpis' || name === 'stats') return name + '-' + p + '.json';
     if (name === 'pcs') return 'pcs-30.json';
-    if (name === 'student') return 'student-' + q.u + '.json';
     if (name === 'game') return 'game-' + q.slug + '.json';
     return name + '.json';
   }
   function demoGet(name, q) {
     var file = 'demo/' + demoFile(name, q);
     var promise = state.demoCache[file] || (state.demoCache[file] = fetch(file, { cache: 'no-cache' }).then(function (res) {
-      if (res.status === 404 && (name === 'student' || name === 'game')) throw new Failure('demoMissing', 404);
+      if (res.status === 404 && name === 'game') throw new Failure('demoMissing', 404);
       if (!res.ok) throw new Failure('server', res.status);
       return res.json();
     }).catch(function (e) { delete state.demoCache[file]; throw e instanceof Failure ? e : new Failure('network'); }));
     return promise.then(function (json) {
       if (json.clock && typeof json.clock === 'object') setClock(json.clock);
-      var band = q.band && q.band !== 'all' ? q.band : null;
-      if (name === 'students' && band) return Object.assign({}, json, { students: json.students.filter(function (s) { return s.band === band; }) });
       if (name === 'stats') {
-        var cols = json.columns, ai = cols.indexOf('a'), mi = cols.indexOf('metric'), si = cols.indexOf('slug');
+        var cols = json.columns, mi = cols.indexOf('metric'), si = cols.indexOf('slug');
         return Object.assign({}, json, { rows: json.rows.filter(function (r) {
-          return q.metrics.indexOf(r[mi]) >= 0 && (!band || r[ai] === band) && (q.slug == null || r[si] === q.slug);
+          return q.metrics.indexOf(r[mi]) >= 0 && (q.slug == null || r[si] === q.slug);
         }) });
       }
       return json;
-    });
-  }
-  // GET /v1/admin/students answers in pages of at most 1.5 MB: next is the last code of a
-  // page that has more after it, asked for again with after=. Every page is fetched and
-  // their students joined in one answer, without next.
-  function allStudents(url, token, json) {
-    if (!json || !json.next || !Array.isArray(json.students)) return json;
-    return request(url + '&after=' + encodeURIComponent(json.next), token).then(function (more) {
-      if (token !== state.token) throw new Failure('stale');
-      var students = json.students.concat(more && Array.isArray(more.students) ? more.students : []);
-      // A page that does not move on ends the list rather than asking for it again.
-      var next = more && more.next && more.next !== json.next ? more.next : null;
-      return allStudents(url, token, Object.assign({}, more, { students: students, next: next }));
     });
   }
   // One request per address and generation: the sections of a tab share it, and a
@@ -257,13 +237,10 @@
     var url = query(name, q), hit = state.cache[url];
     if (hit && hit.gen === state.gen) return hit.promise;
     var token = state.token;
-    var asked = state.demo ? demoGet(name, q) : request(url, token).then(function (json) {
-      return name === 'students' ? allStudents(url, token, json) : json;
-    });
+    var asked = state.demo ? demoGet(name, q) : request(url, token);
     var promise = asked.then(function (json) {
       if (!state.demo && token !== state.token) throw new Failure('stale');
-      // A period that reaches back before the update: its groups' student counts are partial.
-      return name === 'kpis' ? I.forPeriod(json) : json;
+      return json;
     });
     state.cache[url] = { gen: state.gen, promise: promise };
     promise.catch(function () { if (state.cache[url] && state.cache[url].promise === promise) delete state.cache[url]; });
@@ -412,7 +389,6 @@
     if (!m) return null;
     var arg = '';
     try { arg = m[2] ? decodeURIComponent(m[2]) : ''; } catch (e) { return null; }
-    if (m[1] === 'student') return CODE_RE.test(arg) ? { tab: 'student', arg: arg, parent: 'students' } : null;
     if (m[1] === 'game') return SLUG_RE.test(arg) ? { tab: 'game', arg: arg, parent: 'games' } : null;
     return TABS.indexOf(m[1]) >= 0 && !arg ? { tab: m[1], arg: '', parent: m[1] } : null;
   }
@@ -515,10 +491,9 @@
     C.hideTip();
   }
   function renderRange() {
-    var T = t(), r = range(), band = state.band;
-    var period = r.from === r.to ? T.rangeOne(dayText(r.from, { day: 'numeric', month: 'long', year: 'numeric' }))
+    var T = t(), r = range();
+    $('rangeText').textContent = r.from === r.to ? T.rangeOne(dayText(r.from, { day: 'numeric', month: 'long', year: 'numeric' }))
       : T.range(dayText(r.from, { day: 'numeric', month: 'short' }), dayText(r.to, { day: 'numeric', month: 'short', year: 'numeric' }));
-    $('rangeText').textContent = period + (bandApplies() ? ' · ' + (band && band !== 'all' ? I.bandLabel(band, state.lang) : T.allAges) : '');
   }
   // The footer: what is collected, the day the school's clock began, last night's charts.
   function renderFooter() {
@@ -533,8 +508,8 @@
     return v && v.data && v.data.kpis && !v.data.kpis.failed ? v.data.kpis : null;
   }
   // The update day, when the period reaches back before it: { legacyUntil, factsSince }, or
-  // null. Up to legacyUntil the server kept milestone 2's daily totals only; students, hours
-  // and the per-child answers (students, game, stats, cohorts) start at factsSince.
+  // null. Up to legacyUntil the server kept milestone 2's daily totals only; the hours, the
+  // levels and the game and stats answers start at factsSince.
   function cutover() {
     var r = range(), k = viewKpis(), c = state.settings && state.settings.clock;
     var src = [k && k.range, c].filter(function (x) { return x && R.isDay(x.legacyUntil); })[0];
@@ -681,7 +656,6 @@
   }
 
   // ---- filters ---------------------------------------------------------------------
-  function bandApplies() { return ['pcs', 'data', 'student'].indexOf(state.route.tab) < 0; }
   // Every tab follows the period (the Data tab's quality panel too).
   function periodApplies() { return true; }
   function segmented(host, label, items, current, onPick) {
@@ -717,12 +691,6 @@
       state.period = p; state.customOpen = false; savePeriod(); changed();
     });
     drawCustom();
-    var bf = $('bandFilter');
-    bf.hidden = !bandApplies();
-    var bands = state.demo ? BANDS.slice(0, 4) : BANDS;
-    segmented(bf, T.age, bands.map(function (b) {
-      return { value: b, text: b === 'all' ? T.allAges : b === 'unknown' ? T.ageNotSet : I.bandLabel(b, state.lang).replace(/ (سنوات|سنة)$/, '') };
-    }), state.band, function (b) { state.band = b; changed(); });
     drawPicker();
     renderStatus();
   }
@@ -750,34 +718,18 @@
       state.custom = { from: a, to: b }; state.customOpen = false; savePeriod(); changed();
     });
   }
-  // The game picker (Learning, a game's page) and the code search (Students).
+  // The game picker (a game's page).
   function drawPicker() {
     var T = t(), box = $('pickFilter'), tab = state.route.tab;
     box.textContent = '';
-    box.hidden = ['learning', 'game', 'students'].indexOf(tab) < 0;
+    box.hidden = tab !== 'game';
     if (box.hidden) return;
-    if (tab === 'students') {
-      h('label', { class: 'filter-label', for: 'codeSearch' }, box, T.codeSearch);
-      var input = h('input', { id: 'codeSearch', type: 'search', class: 'code-search', dir: 'ltr', value: state.search, maxlength: '20',
-        autocomplete: 'off', spellcheck: 'false', placeholder: T.codePlaceholder, 'data-focus': 'search', 'aria-describedby': 'codeSearchHint' }, box);
-      h('span', { id: 'codeSearchHint', class: 'sr-only' }, box, T.codeSearchHint);
-      input.addEventListener('input', function () {
-        state.search = input.value;
-        state.page.students = 0;
-        if (TABS_IMPL.students && TABS_IMPL.students.search) TABS_IMPL.students.search(ctx);
-      });
-      return;
-    }
     h('label', { class: 'filter-label', for: 'gamePick' }, box, T.gamePick);
     var select = h('select', { id: 'gamePick', class: 'game-pick', 'data-focus': 'gamePick' }, box);
-    var current = tab === 'game' ? state.route.arg : state.game;
-    if (tab === 'learning') h('option', { value: 'all', selected: current === 'all' }, select, T.allMeasured);
+    var current = state.route.arg;
     knownSlugs().forEach(function (slug) { h('option', { value: slug, selected: slug === current }, select, gameName(slug)); });
-    if (tab === 'game' && !own(BUNDLED, current)) h('option', { value: current, selected: true }, select, current);
-    select.addEventListener('change', function () {
-      if (tab === 'game') { location.hash = '#/game/' + encodeURIComponent(select.value); return; }
-      state.game = select.value; changed();
-    });
+    if (!own(BUNDLED, current)) h('option', { value: current, selected: true }, select, current);
+    select.addEventListener('change', function () { location.hash = '#/game/' + encodeURIComponent(select.value); });
   }
   function renderStatus() { keepFocus(drawStatus); }
   function drawStatus() {
@@ -847,17 +799,14 @@
     if (cut) text = t().noDataSince(dayText(cut.factsSince, { day: 'numeric', month: 'short', year: 'numeric' }));
     return h('p', { class: 'note' + (cls ? ' ' + cls : '') }, parent, text);
   }
-  // The small-sample chip: "based on 2 children" (fewer than 5 students, or 20 tries).
-  function chipText(students, tries, long) {
-    var T = t(), few = students != null && students < I.T.SMALL_STUDENTS;
-    return few ? (long ? T.smallSample(students) : T.smallChip(students)) : (long ? T.smallTries(tries) : T.smallChipTries(tries));
-  }
-  function chip(parent, students, tries) {
-    if (!I.small(students, tries)) return null;
-    return h('span', { class: 'chip', 'data-small': 'true' }, parent, chipText(students, tries));
+  // The small-sample chip: "based on 12 tries" (fewer than 20 tries).
+  function chipText(tries, long) { var T = t(); return long ? T.smallTries(tries) : T.smallChipTries(tries); }
+  function chip(parent, tries) {
+    if (!I.small(tries)) return null;
+    return h('span', { class: 'chip', 'data-small': 'true' }, parent, chipText(tries));
   }
   // The chip's text when a mark is small, else null (for bar lists and tooltips).
-  function chipFor(students, tries, long) { return I.small(students, tries) ? chipText(students, tries, long) : null; }
+  function chipFor(tries, long) { return I.small(tries) ? chipText(tries, long) : null; }
   // label(k): "Show all 34 games" by default; limit: the rows shown before (TOP).
   function moreButton(parent, id, total, label, limit) {
     if (total <= (limit || TOP)) return;
@@ -886,7 +835,6 @@
   function link(parent, hash, text, cls) {
     return h('a', { href: hash, class: cls || null }, parent, text);
   }
-  function studentLink(parent, s) { return link(parent, '#/student/' + encodeURIComponent(s.u), R.studentLabel(s, state.lang), 'student-link'); }
   function gameLink(parent, slug) { return link(parent, '#/game/' + encodeURIComponent(slug), gameName(slug), 'game-link'); }
   // A section whose data an older server does not send (or that failed) says so.
   function missing(parent, x) { note(parent, x && x.failed ? failureText(x.failed) : t().noData, 'empty-part'); }
@@ -901,11 +849,10 @@
   var ICONS = {
     stuck: 'M12 3 2 21h20L12 3Zm0 6v5m0 3v.5', hard: 'M12 3 2 21h20L12 3Zm0 6v5m0 3v.5',
     favourite: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z',
-    favouriteBand: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z',
     health: 'M3 5h18v11H3zM8 20h8M12 16v4', returning: 'M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4',
     trend: 'M3 17l6-6 4 4 8-8M15 7h6v6', easy: 'M5 12l5 5 9-10',
     hearts: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z',
-    growth: 'M3 17l6-6 4 4 8-8M15 7h6v6', persist: 'M4 12a8 8 0 0 1 14-5.3M20 4v4h-4', tired: 'M12 7v5l3 2M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0',
+    persist: 'M4 12a8 8 0 0 1 14-5.3M20 4v4h-4', tired: 'M12 7v5l3 2M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0',
     peak: 'M4 20V10M10 20V4M16 20v-7M22 20H2', session: 'M12 7v5l3 2M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0',
     old: 'M12 8v5m0 3v.5M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0', empty: 'M4 12h16', quiet: 'M5 12l5 5 9-10'
   };
@@ -921,7 +868,7 @@
       var li = h('li', { class: 'insight', 'data-kind': item.kind }, ol);
       icon(li, item.kind);
       var text = h('span', { class: 'insight-text' }, li, item.text);
-      if (item.small) { text.appendChild(document.createTextNode(' ')); chip(text, item.students, item.tries); }
+      if (item.small) { text.appendChild(document.createTextNode(' ')); chip(text, item.tries); }
     });
     return ol;
   }
@@ -972,7 +919,7 @@
     gameName: gameName, gameInfo: function (slug) { return own(INFO, slug); }, categoryName: categoryName, knownSlugs: knownSlugs,
     dayText: dayText, shortDay: shortDay, longDay: longDay, weekdayName: weekdayName, minutesText: minutesText, secondsText: secondsText,
     card: card, choice: choice, note: note, chip: chip, chipText: chipText, chipFor: chipFor, moreButton: moreButton, top: top,
-    section: section, tile: tile, link: link, studentLink: studentLink, gameLink: gameLink, missing: missing, has: has,
+    section: section, tile: tile, link: link, gameLink: gameLink, missing: missing, has: has,
     draw: draw, icon: icon, sentences: sentences, verdictNode: verdictNode, verdictText: verdictText, legendOf: legendOf, legendList: legendList,
     OUTCOMES: OUTCOMES, ORDINAL: ORDINAL, failureText: failureText, renderView: renderView, refreshView: refreshView,
     keepFocus: keepFocus, postSettings: postSettings, zonePicker: zonePicker, loadSettings: loadSettings, cutover: function () { return cutover(); },
@@ -982,12 +929,8 @@
   // ---- the Overview ----------------------------------------------------------------------
   var OVERVIEW = {
     load: function () {
-      var band = state.band;
-      return Promise.all([
-        get('kpis', { band: band }),
-        part(get('stats', { band: band, metrics: ['hour'] })),
-        part(get('students', { band: band }))
-      ]).then(function (x) { return { kpis: x[0], hours: x[1], students: x[2] }; });
+      return Promise.all([get('kpis', {}), part(get('stats', { metrics: ['hour'] }))])
+        .then(function (x) { return { kpis: x[0], hours: x[1] }; });
     },
     render: function (c, view, data) { renderOverview(view, data); }
   };
@@ -1006,26 +949,21 @@
     renderDaily(view, k);
     renderWhen(view, data.hours);
     renderFavourites(view, k);
-    renderByAge(view, k);
     renderStuck(view, k);
     renderDifficulty(view, k);
-    renderReturning(view, k, data.students);
+    renderReturning(view, k);
     renderHealth(view, k);
   }
 
   function renderTiles(box, k) {
-    var T = t(), tot = k && I.shown(k.totals) ? k.totals : {}, st = tot.students || {};
-    var dash = '—';
-    // Before the update the server did not tell students apart: these totals count from then.
-    var since = I.partialStudents(k) && R.isDay(k.range.factsSince) ? T.countedSince(dayText(k.range.factsSince, { day: 'numeric', month: 'short' })) : null;
-    tile(box, 'students', T.tileStudents, has(st.active) ? I.int(st.active) : dash, '', since || T.tileStudentsHint, has(st.active) ? st.active : null);
+    var T = t(), tot = k && I.shown(k.totals) ? k.totals : {}, dash = '—';
+    tile(box, 'sessions', T.tileSessions, has(tot.sessions) ? I.int(tot.sessions) : dash, '', T.tileSessionsHint, has(tot.sessions) ? tot.sessions : null);
     var d = has(tot.engagedMinutes) ? I.duration(tot.engagedMinutes, state.lang) : null;
     tile(box, 'playTime', T.tilePlayTime, d ? d.value : dash, d ? d.unit : '', T.tilePlayTimeHint, d ? tot.engagedMinutes : null);
-    var q = st.minutesPerStudentDay || {};
-    tile(box, 'perStudentDay', T.tilePerStudentDay, has(q.median) ? I.short(q.median) : dash, has(q.median) ? T.minutesUnit : '',
-      has(q.p25) && has(q.p75) ? T.tilePerStudentDayHint(I.short(q.p25), I.short(q.p75)) : T.tilePerStudentDayNone, has(q.median) ? q.median : null);
-    tile(box, 'sessions', T.tileSessions, has(tot.sessions) ? I.int(tot.sessions) : dash, '', T.tileSessionsHint, has(tot.sessions) ? tot.sessions : null);
-    tile(box, 'newStudents', T.tileNewStudents, has(st.new) ? I.int(st.new) : dash, '', since || T.tileNewStudentsHint, has(st.new) ? st.new : null);
+    var per = tot.avgEngagedMinutesPerSession;
+    tile(box, 'perSession', T.tilePerSession, has(per) ? I.short(per) : dash, has(per) ? T.minutesUnit : '', T.tilePerSessionHint, has(per) ? per : null);
+    tile(box, 'opens', T.tileOpens, has(tot.gameOpens) ? I.int(tot.gameOpens) : dash, '', T.tileOpensHint, has(tot.gameOpens) ? tot.gameOpens : null);
+    tile(box, 'rounds', T.tileRounds, has(tot.roundsEnded) ? I.int(tot.roundsEnded) : dash, '', T.tileRoundsHint, has(tot.roundsEnded) ? tot.roundsEnded : null);
     var now = tile(box, 'now', T.tileNow, dash, '', T.tileNowHint, null);
     now.el.id = 'nowTile';
     renderLive();
@@ -1041,40 +979,28 @@
     el.setAttribute('data-value', String(total.sessions));
     var games = (live.games || []).filter(function (g) { return I.shown(g) && g.sessions > 0; })
       .sort(function (a, b) { return b.sessions - a.sessions || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0); });
-    // "14 children: 11 students, 3 guests, on 12 PCs" when the server tells them apart.
-    var who = has(live.students) ? T.nowWho(total.sessions, live.students, live.guests || 0, live.unknown || 0, live.pcs || 0) : '';
-    hint.textContent = [who, games.length ? T.nowTop(gameName(games[0].slug)) : ''].filter(Boolean).join(' · ') || T.tileNowHint;
+    // "on 12 PCs" counts the PCs on the new version (older ones send no PC code).
+    var where = total.sessions > 0 && has(live.pcs) && live.pcs > 0 ? T.nowPcs(live.pcs) : '';
+    hint.textContent = [where, games.length ? T.nowTop(gameName(games[0].slug)) : ''].filter(Boolean).join(' · ') || T.tileNowHint;
     if (state.liveAt) el.title = T.nowChecked(timeText(state.liveAt));
   }
 
-  // How much of the play counts for a student, and how many PCs run the new version.
+  // How many PCs run the new version, and how much play still comes from older ones.
   function renderQuality(parent, k) {
     var T = t(), q = k && k.quality;
     if (!q || typeof q !== 'object') return;
     var box = h('div', { class: 'quality', id: 'quality', role: 'note' }, parent);
-    var lines = [];
-    if (has(q.linkedShare)) lines.push(T.qualityLine(I.pct(q.linkedShare)));
-    var st = k.totals && k.totals.students;
-    if (st && has(st.guestMinutes) && has(k.totals.engagedMinutes) && k.totals.engagedMinutes > 0 &&
-      st.guestMinutes / k.totals.engagedMinutes >= GUEST_ADVICE) lines.push(T.guestAdvice);
-    if (has(q.pcsNew)) lines.push(T.pcsUpdated(q.pcsNew, has(q.oldVersionSessionShare) && q.oldVersionSessionShare > 0 ? I.pct(q.oldVersionSessionShare) : null));
-    lines.forEach(function (line) { h('p', null, box, line); });
+    if (has(q.pcsNew)) h('p', null, box, T.pcsUpdated(q.pcsNew, has(q.oldVersionSessionShare) && q.oldVersionSessionShare > 0 ? I.pct(q.oldVersionSessionShare) : null));
     link(h('p', null, box), '#/data', T.qualityMore);
   }
 
-  // Daily activity: two separate charts, never a dual axis. Students per day from the
-  // updated server, play sessions from an older one.
+  // Daily activity: two separate charts, never a dual axis: play sessions and play time.
   function renderDaily(parent, k) {
     var T = t(), sec = section(parent, 'daily', T.dailyTitle);
     var grid = h('div', { class: 'grid-2' }, sec);
     var days = (k.daily || []).filter(Boolean);
-    // Students per day when every day has them; the days before the update have none, so a
-    // period that reaches back to them is drawn as play sessions, which every day has.
-    var counted = days.filter(I.shown);
-    var perStudent = counted.length > 0 && counted.every(function (d) { return has(d.students); });
     var tick = function (day) { return days.length <= 7 ? dayText(day, { weekday: 'short', day: 'numeric' }) : shortDay(day); };
-    [[perStudent ? 'students' : 'sessions', perStudent ? T.dailyStudents : T.dailySessions, perStudent ? T.studentsCol : T.sessions, 'daily-count'],
-      ['engagedMinutes', T.dailyMinutes, T.minutes, 'daily-minutes']].forEach(function (spec) {
+    [['sessions', T.dailySessions, T.sessions, 'daily-count'], ['engagedMinutes', T.dailyMinutes, T.minutes, 'daily-minutes']].forEach(function (spec) {
       var c = card(grid, spec[3], spec[1], null, true);
       var fmt = function (v) { return I.int(v); };
       if (days.length < 7) note(c.chart, T.dailyNeedsDays);
@@ -1095,7 +1021,7 @@
   function whenHeatmap(c, hours, opts) {
     var T = t(), r = range(), last = R.shift(today(), -1), to = r.to < last ? r.to : last;
     var rows = R.statRows(hours);
-    var grid = R.weekHours(rows, { from: r.from, to: to, weekStart: weekStart(), band: 'all' });
+    var grid = R.weekHours(rows, { from: r.from, to: to, weekStart: weekStart() });
     var hoursShown = R.activeHours(grid, opts && opts.lo, opts && opts.hi);
     var hourText = function (hr) { return String(hr).padStart(2, '0') + ':00'; };
     var empty = !grid.some(function (row) { return row.cells.some(function (x) { return x.visits; }); });
@@ -1111,7 +1037,7 @@
           var x = grid[ri].cells[hoursShown[ci]];
           return { title: weekdayName(grid[ri].weekday) + ' ' + hourText(x.hour), rows: [
             { value: minutesText(x.minutes), label: T.ofPlay, color: 'var(--q4)', swatch: 'bar' },
-            { value: T.nVisits(x.visits) }, { value: I.short(x.perDay), label: T.studentsPerDay(x.occurrences) }] };
+            { value: T.nVisits(x.visits) }, { value: I.short(x.perDay), label: T.visitsPerDay(x.occurrences) }] };
         },
         legend: legendOf(function (v) { return minutesText(v); })
       });
@@ -1119,7 +1045,7 @@
     var cells = [];
     grid.forEach(function (row) { row.cells.forEach(function (x) { if (x.visits) cells.push([weekdayName(row.weekday), hourText(x.hour), minutesText(x.minutes), I.int(x.visits), I.short(x.perDay)]); }); });
     C.table(c.table, T.whenTitle, [{ label: T.weekday }, { label: T.hour }, { label: T.playTime, num: true }, { label: T.visits, num: true },
-      { label: T.studentsPerDayCol, num: true }], cells);
+      { label: T.visitsPerDayCol, num: true }], cells);
   }
   function renderWhen(parent, hours) {
     var T = t(), sec = section(parent, 'when', T.whenTitle);
@@ -1140,11 +1066,10 @@
     else draw(function () {
       if (c.chart.hidden) return;
       C.barList(c.chart, { name: T.favTitle, rtl: rtl(), color: 'var(--s1)', max: max, sub: false, rows: rows.map(function (g) {
-        return { label: gameName(g.slug), value: g.opens, valueText: T.nOpens(g.opens), chip: g.small ? chipText(g.students, null) : null,
-          tip: { title: gameName(g.slug), note: g.small ? chipText(g.students, null, true) : null, rows: [
+        return { label: gameName(g.slug), value: g.opens, valueText: T.nOpens(g.opens),
+          tip: { title: gameName(g.slug), rows: [
             { value: T.nOpens(g.opens), label: g.share != null ? '(' + I.pct(g.share) + ')' : '', color: 'var(--s1)', swatch: 'bar' },
-            { value: T.nSessions(g.sessions) }].concat(has(g.students) ? [{ value: T.nStudents(g.students) }] : [])
-            .concat([{ value: minutesText(g.engagedMinutes), label: T.ofPlay }]) } };
+            { value: T.nSessions(g.sessions) }, { value: minutesText(g.engagedMinutes), label: T.ofPlay }] } };
       }) });
     });
     moreButton(c.foot, 'fav', fav.rows.length);
@@ -1168,54 +1093,6 @@
       cats.map(function (x) { return [categoryName(x.id), minutesText(x.minutes), I.int(x.opens), I.int(x.games)]; }));
   }
 
-  // Favourites by age: one small panel per age group, on the same scale; minutes or opens.
-  function renderByAge(parent, k) {
-    var T = t(), sec = section(parent, 'by-age', T.byAgeTitle);
-    // One age group chosen: its favourites are the list above.
-    if (k.range && k.range.band && k.range.band !== 'all') {
-      note(h('div', { class: 'card', id: 'age-card' }, sec), T.byAgeOne(I.bandLabel(k.range.band, state.lang)));
-      return;
-    }
-    var groups = I.favouritesByBand(k, 50);
-    var minutes = groups.some(function (g) { return g.rows.some(function (r) { return r.engagedMinutes != null; }); });
-    var c = card(sec, 'age-card', null, T.byAgeSub, true);
-    var by = minutes ? choice(c.tools, 'byAge', [{ value: 'minutes', text: T.byMinutes }, { value: 'opens', text: T.byOpens }], 'minutes', T.showBy) : 'opens';
-    c.head.querySelector('.card-sub').textContent = by === 'minutes' ? T.byAgeSubMinutes : T.byAgeSub;
-    var val = function (g, r) { return by === 'minutes' ? (g.engagedMinutes ? (r.engagedMinutes || 0) / g.engagedMinutes : 0) : r.share || 0; };
-    groups.forEach(function (g) { g.top = g.rows.slice().sort(function (a, b) { return val(g, b) - val(g, a) || b.opens - a.opens; }).slice(0, 5); });
-    var max = 0;
-    groups.forEach(function (g) { g.top.forEach(function (r) { max = Math.max(max, val(g, r)); }); });
-    var panels = h('div', { class: 'multiples' }, c.chart);
-    if (!groups.length) note(panels, T.noData);
-    groups.forEach(function (g) {
-      var p = h('div', { class: 'panel' }, panels);
-      var head = h('div', { class: 'panel-head' }, p);
-      h('h4', { class: 'panel-title' }, head, I.bandLabel(g.band, state.lang));
-      var sub = h('span', { class: 'panel-sub' }, head, has(g.students) ? T.nStudents(g.students) : T.nSessions(g.sessions));
-      if (g.small) { sub.appendChild(document.createTextNode(' ')); chip(sub, g.students, null); }
-      var host = h('div', { class: 'chart-host' }, p);
-      if (!g.top.length) { note(host, T.noData); return; }
-      draw(function () {
-        if (c.chart.hidden) return;
-        C.barList(host, { name: T.byAgeTitle + ': ' + I.bandLabel(g.band, state.lang), rtl: rtl(), color: 'var(--s1)', max: max || 1, sub: false,
-          rows: g.top.map(function (r) {
-            return { label: gameName(r.slug), value: val(g, r), valueText: I.pct(val(g, r)),
-              tip: { title: gameName(r.slug), rows: [{ value: I.pct(val(g, r)), label: by === 'minutes' ? T.ofGroupMinutes : T.ofGroupOpens, color: 'var(--s1)', swatch: 'bar' },
-                { value: T.nOpens(r.opens) }].concat(r.engagedMinutes == null ? [] : [{ value: minutesText(r.engagedMinutes), label: T.ofPlay }]) } };
-          }) });
-      });
-    });
-    var rows = [];
-    groups.forEach(function (g) {
-      g.top.forEach(function (r) {
-        rows.push([I.bandLabel(g.band, state.lang), gameName(r.slug), I.pct(val(g, r)), I.int(r.opens)]
-          .concat(minutes ? [r.engagedMinutes == null ? '—' : minutesText(r.engagedMinutes)] : []));
-      });
-    });
-    C.table(c.table, T.byAgeTitle, [{ label: T.ageGroup }, { label: T.game }, { label: by === 'minutes' ? T.shareMinutes : T.share, num: true }, { label: T.opens, num: true }]
-      .concat(minutes ? [{ label: T.playTime, num: true }] : []), rows);
-  }
-
   function levelName(l) { return gameName(l.slug) + ' · ' + I.levelLabel(l.id, state.lang); }
 
   function renderStuck(parent, k) {
@@ -1227,8 +1104,8 @@
     else draw(function () {
       if (c.chart.hidden) return;
       C.barList(c.chart, { name: T.stuckTitle, rtl: rtl(), color: 'var(--s3)', max: 1, track: true, rows: rows.map(function (l) {
-        return { label: levelName(l), value: l.rate, valueText: I.pct(l.rate), sub: T.xOfY(l.quits, l.starts), chip: l.small ? chipText(l.students, l.starts) : null,
-          tip: { title: levelName(l), note: l.small ? chipText(l.students, l.starts, true) : null, rows: [
+        return { label: levelName(l), value: l.rate, valueText: I.pct(l.rate), sub: T.xOfY(l.quits, l.starts), chip: l.small ? chipText(l.starts) : null,
+          tip: { title: levelName(l), note: l.small ? chipText(l.starts, true) : null, rows: [
             { value: I.pct(l.rate), label: T.leftUnfinished, color: 'var(--s3)', swatch: 'bar' }, { value: T.xOfY(l.quits, l.starts) }] } };
       }) });
     });
@@ -1236,30 +1113,28 @@
       stuck.rows.map(function (l) { return [gameName(l.slug), I.levelLabel(l.id, state.lang), I.pct(l.rate), T.xOfY(l.quits, l.starts)]; }));
   }
 
-  // The difficulty grid (also on the Learning tab): every game, how its rounds end, a
-  // verdict for all ages and each age group.
+  // The difficulty grid (also on the Games tab and a game's page): every game, how its
+  // rounds end, and its verdict.
   function difficulty(parent, k, opts) {
     var T = t(), o = opts || {};
     var grid = I.difficultyGrid(k);
     if (o.slugs) grid.rows = grid.rows.filter(function (r) { return o.slugs.indexOf(r.slug) >= 0; });
     var c = card(parent, o.id || 'diff-card', o.title || null, T.diffSub, true);
-    var cols = grid.perBand ? ['all'].concat(I.BANDS) : [grid.band];
-    var colName = function (b) { return b === 'all' ? T.allAgesShort : I.bandLabel(b, state.lang); };
     var legend = h('ul', { class: 'legend', 'aria-label': T.howRoundsEnd }, c.chart);
     OUTCOMES.forEach(function (x) {
       var li = h('li', null, legend);
       h('span', { class: 'swatch' }, li).style.background = x[1];
       h('span', null, li, T.outcome[x[0]]);
     });
-    var table = h('div', { class: 'diff-grid cols-' + cols.length, role: 'table', 'aria-labelledby': parent.id + '-h' }, c.chart);
+    var table = h('div', { class: 'diff-grid cols-1', role: 'table', 'aria-labelledby': parent.id + '-h' }, c.chart);
     var head = h('div', { class: 'diff-row diff-head', role: 'row' }, table);
     h('span', { role: 'columnheader', class: 'diff-game' }, head, T.game);
     h('span', { role: 'columnheader', class: 'diff-bar' }, head, T.howRoundsEnd);
-    cols.forEach(function (b) { h('span', { role: 'columnheader', class: 'diff-cell' }, head, colName(b)); });
+    h('span', { role: 'columnheader', class: 'diff-cell' }, head, T.verdictCol);
     top(o.id || 'diff', grid.rows).forEach(function (r) {
       var row = h('div', { class: 'diff-row mark', role: 'row', 'data-slug': r.slug }, table);
       var nameCell = h('span', { role: 'rowheader', class: 'diff-game' }, row, gameName(r.slug));
-      if (r.small) { nameCell.appendChild(document.createTextNode(' ')); chip(nameCell, r.students, r.tries); }
+      if (r.small) { nameCell.appendChild(document.createTextNode(' ')); chip(nameCell, r.tries); }
       var barCell = h('span', { role: 'cell', class: 'diff-bar' }, row);
       var oc = r.outcomes, total = oc.ended || 0;
       var parts = OUTCOMES.map(function (x) { return { value: oc[x[0]], color: x[1] }; });
@@ -1270,40 +1145,32 @@
       });
       // The bar's "won" is a share of every ending; the verdict compares wins with wins and losses.
       if (r.winRate != null) tipRows.push({ value: I.pct(r.winRate), label: T.winRate });
-      var verdicts = [];
-      cols.forEach(function (b) {
-        var v = b === 'all' || b === grid.band ? r.verdict : r.cells[b] || { code: 'missing' };
-        var cell = h('span', { role: 'cell', class: 'diff-cell', 'data-band': b }, row);
-        h('span', { class: 'diff-cell-band', 'aria-hidden': 'true' }, cell, colName(b));
-        verdictNode(cell, v, true);
-        verdicts.push(colName(b) + ': ' + verdictText(v, false));
-      });
-      // One stop per row for the keyboard: how its rounds end and every verdict.
-      C.interactive(row, { title: gameName(r.slug), rows: tipRows, note: T.nTries(r.tries) + ' · ' + verdicts.join(' · ') });
+      var cell = h('span', { role: 'cell', class: 'diff-cell' }, row);
+      verdictNode(cell, r.verdict, true);
+      // One stop per row for the keyboard: how its rounds end and the verdict.
+      C.interactive(row, { title: gameName(r.slug), rows: tipRows, note: T.nTries(r.tries) + ' · ' + verdictText(r.verdict, false) });
     });
     moreButton(c.foot, o.id || 'diff', grid.rows.length);
     var details = h('details', { class: 'rule' }, c.foot);
     h('summary', null, details, T.diffHow);
     h('p', null, details, T.diffRule);
     if (grid.byCompletion) h('p', null, details, T.diffRuleCompletion);
-    if (grid.bySessions) h('p', null, details, T.diffRuleSessions);
-    // Table twin with every number, the win rate the verdicts compare included.
+    // Table twin with every number, the win rate the verdict compares included.
     var columns = [{ label: T.game }, { label: T.tries, num: true }, { label: T.winRate, num: true }]
       .concat(OUTCOMES.map(function (x) { return { label: T.outcome[x[0]], num: true }; }))
-      .concat(cols.map(function (b) { return { label: colName(b) }; }));
+      .concat([{ label: T.verdictCol }]);
     C.table(c.table, T.diffTitle, columns, grid.rows.map(function (r) {
       var oc = r.outcomes;
       return [gameName(r.slug), I.int(r.tries), I.pct(r.winRate)].concat(OUTCOMES.map(function (x) { return oc.ended ? I.pct(oc[x[0]] / oc.ended) : '—'; }))
-        .concat(cols.map(function (b) { return verdictText(b === 'all' || b === grid.band ? r.verdict : r.cells[b] || { code: 'missing' }, true); }));
+        .concat([verdictText(r.verdict, true)]);
     }));
     return c;
   }
   ctx.difficulty = difficulty;
   function renderDifficulty(parent, k) { difficulty(section(parent, 'difficulty', t().diffTitle), k); }
 
-  // Coming back: the share of each game's opens by children who played it before, and
-  // new and returning students per week (a 2-part stack).
-  function renderReturning(parent, k, students) {
+  // Coming back: the share of each game's opens on a browser that had opened it before.
+  function renderReturning(parent, k) {
     var T = t(), sec = section(parent, 'returning', T.backTitle);
     var back = I.returning(k, I.T.RETURN_MIN_OPENS);
     var c = card(sec, 'back-card', null, T.backSub, true);
@@ -1326,50 +1193,7 @@
     moreButton(c.foot, 'back', back.rows.length);
     C.table(c.table, T.backTitle, [{ label: T.game }, { label: T.playedBefore, num: true }, { label: T.opens, num: true }, { label: T.firstTime, num: true }],
       back.rows.map(function (g) { return [gameName(g.slug), I.pct(g.share), I.int(g.opens), I.int(g.opens - g.back)]; }));
-    newReturning(sec, 'weeks-card', students);
   }
-  // The charts made from the students answer's weekly minutes (13 whole weeks per child,
-  // ending with the week of the period's end): a period under two weeks would show whole
-  // weeks mostly outside it, and one longer than 13 weeks shows its last 13 only (said in
-  // the card's foot).
-  var WEEKS_MIN_DAYS = 14, WEEKS_KEPT = 13;
-  function weeksShown(c) {
-    var r = range();
-    if (r.days < WEEKS_MIN_DAYS) { note(c.chart, t().weeksNeedDays); return false; }
-    if (r.days > WEEKS_KEPT * 7) note(c.foot, t().weeksLast13);
-    return true;
-  }
-  // New and returning students per week, from the students answer.
-  function newReturning(parent, id, students) {
-    var T = t(), c = card(parent, id, T.weeksTitle, T.weeksSub, true);
-    if (failed(students)) { missing(c.chart, students); return c; }
-    var r = range();
-    var weeks = R.newReturning(students.students, { from: r.from, to: r.to, weekStart: weekStart() });
-    // The students answer counts from the update day: the weeks before it would read 0.
-    var cut = cutover();
-    if (cut) weeks = weeks.filter(function (w) { return R.shift(w.week, 6) >= cut.factsSince; });
-    if (!weeksShown(c)) weeks = [];
-    else if (weeks.length < (cut ? 1 : 2)) { note(c.chart, cut ? T.noData : T.weeksNeedDays); }
-    else {
-      legendList(c.chart, T.weeksTitle, [[T.returningStudents, ORDINAL[0]], [T.newStudentsLabel, ORDINAL[1]]]);
-      var plot = h('div', { class: 'plot' }, c.chart);
-      draw(function () {
-      if (c.chart.hidden) return;
-      C.columns(plot, { name: T.weeksTitle, rtl: rtl(), keysHint: T.keysColumns, format: function (v) { return I.int(v); },
-        bars: weeks.map(function (w) {
-          return { tick: shortDay(w.week), title: T.weekOf(longDay(w.week)),
-            parts: [{ value: w.returning, color: ORDINAL[0] }, { value: w.new, color: ORDINAL[1] }],
-            tip: { title: T.weekOf(longDay(w.week)), rows: [{ value: I.int(w.returning), label: T.returningStudents, color: ORDINAL[0], swatch: 'bar' },
-              { value: I.int(w.new), label: T.newStudentsLabel, color: ORDINAL[1], swatch: 'bar' }] } };
-        }) });
-      });
-    }
-    C.table(c.table, T.weeksTitle, [{ label: T.week }, { label: T.returningStudents, num: true }, { label: T.newStudentsLabel, num: true }],
-      weeks.slice().reverse().map(function (w) { return [T.weekOf(longDay(w.week)), I.int(w.returning), I.int(w.new)]; }));
-    return c;
-  }
-  ctx.newReturning = newReturning;
-  ctx.weeksShown = weeksShown;
   ctx.whenHeatmap = whenHeatmap;
 
   // PC health summary: the headline tiles and the games with a problem; each PC on the PCs tab.

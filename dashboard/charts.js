@@ -5,7 +5,7 @@
  * axis per chart, a tooltip on hover and on keyboard focus, a table twin for
  * every chart (built by the caller with SGCharts.table). In right-to-left pages
  * the charts are mirrored: bars grow from the right and time runs right to left.
- * Magnitudes on a grid (heatmaps, cohorts, the calendar) use the sequential ramp
+ * Magnitudes on a grid (heatmaps) use the sequential ramp
  * --q1..--q5; ordered parts of a whole (same, level, game, stop) the ordinal --o1..--o4.
  */
 (function () {
@@ -202,7 +202,7 @@
         s('circle', { cx: r1(X(seg[0])), cy: r1(Y(points[seg[0]].value)), r: 3, fill: opts.color }, marks);
         return;
       }
-      // A step line holds each value until the next step (a level that changes by attempt).
+      // A step line holds each value until the next step.
       var d = seg.map(function (i, k) {
         if (!k) return 'M' + r1(X(i)) + ' ' + r1(Y(points[i].value));
         return opts.step ? 'H' + r1(X(i)) + 'V' + r1(Y(points[i].value)) : 'L' + r1(X(i)) + ' ' + r1(Y(points[i].value));
