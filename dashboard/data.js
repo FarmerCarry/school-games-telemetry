@@ -3,11 +3,10 @@
  * period in a ZIP, with its cost first, a progress bar, and a part 2 tomorrow when the
  * day's reading allowance runs out), the data dictionary (dictionary.js), the server's
  * settings (the school's clock, the first day of the week, how long data is kept, a full
- * recount), one child's data (find a code, then forget or link it, each asking twice) and
- * the meters (the free plan's daily allowance, the database size) with the data-quality
- * panel. Data: GET and POST /v1/admin/settings, POST /v1/admin/rebuild, /v1/admin/kpis
- * (the cost and the quality), /v1/admin/export, and /v1/admin/student or students to find
- * a code. The sample data changes nothing, and its research files are demo/export-*.csv.
+ * recount) and the meters (the free plan's daily allowance, the database size) with the
+ * data-quality panel. Data: GET and POST /v1/admin/settings, POST /v1/admin/rebuild,
+ * /v1/admin/kpis (the cost and the quality) and /v1/admin/export. The sample data changes
+ * nothing, and its research files are demo/export-*.csv.
  */
 (function () {
   'use strict';
@@ -259,7 +258,6 @@
       return { keepDays: v };
     }, 'keepLabel');
     rebuild(ctx, grid, s);
-    child(ctx, grid);
   }
   // When each one-click setting was last saved ({ id: ms }): "Saved." shows for a minute,
   // across the redraw that follows.
@@ -315,69 +313,6 @@
       yes.focus();
     });
   }
-  // One child's data: a code from the teacher page (or its start), then the student's page,
-  // forgetting them or linking another code (the student page's own panels, asking twice).
-  function child(ctx, grid) {
-    var T = ctx.t(), h = ctx.h, R = ctx.R, I = ctx.I;
-    var box = h('div', { class: 'card setting', id: 'setting-child' }, grid);
-    h('h3', { class: 'card-title' }, box, T.childTitle);
-    h('p', { class: 'note' }, box, T.childIntro);
-    var form = h('form', { class: 'child-form', novalidate: true }, box);
-    h('label', { for: 'childCode', class: 'sr-only' }, form, T.codeSearch);
-    var input = h('input', { id: 'childCode', type: 'search', class: 'code-search', dir: 'ltr', autocomplete: 'off', spellcheck: 'false', placeholder: T.codePlaceholder,
-      'data-focus': 'child:code', maxlength: '20' }, form);
-    h('button', { type: 'submit', class: 'btn-quiet', 'data-focus': 'child:find' }, form, T.childFind);
-    var out = h('div', { class: 'child-result', id: 'childResult', 'aria-live': 'polite' }, box);
-    var panel = h('div', { class: 'action-panel', id: 'actionPanel', hidden: true }, box);
-    var close = function () { panel.hidden = true; panel.textContent = ''; };
-    function show(s) {
-      out.textContent = '';
-      close();
-      var who = h('p', { class: 'child-who' }, out);
-      ctx.studentLink(who, s);
-      who.appendChild(document.createTextNode(' · ' + I.bandLabel(s.band || 'unknown', ctx.lang()) + (s.lastDay ? ' · ' + T.lastPlayedOn(ctx.shortDay(s.lastDay)) : '') +
-        ((s.linked || []).length ? ' · ' + T.nLinked(s.linked.length) : '')));
-      var acts = h('div', { class: 'student-actions' }, out);
-      var panels = tabs.student && tabs.student.panels;
-      var a = { student: s };
-      h('button', { type: 'button', class: 'btn-quiet', id: 'childLink', 'data-focus': 'child:link' }, acts, T.linkAction).addEventListener('click', function () {
-        panel.textContent = ''; panel.hidden = false; panels.link(ctx, panel, a, close);
-      });
-      h('button', { type: 'button', class: 'btn-quiet btn-danger', id: 'childForget', 'data-focus': 'child:forget' }, acts, T.forgetAction).addEventListener('click', function () {
-        panel.textContent = ''; panel.hidden = false; panels.forget(ctx, panel, a, close);
-      });
-    }
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      out.textContent = '';
-      close();
-      var text = input.value, whole = R.fullCode(text);
-      if (whole && whole.wrong) { ctx.note(out, T.childWrong, 'field-error'); return; }
-      if (!R.codeQuery(text)) { ctx.note(out, T.codeSearchHint, 'field-error'); return; }
-      ctx.note(out, T.loading);
-      // A whole code: the server's own record of it, in any period (the sample: its list).
-      if (whole && !ctx.demo()) {
-        ctx.get('student', { u: whole.code }).then(function (x) { show(x.student); }, function (f) {
-          out.textContent = '';
-          ctx.note(out, f && f.body && f.body.error === 'student' ? T.studentUnknown : ctx.failureText(f), 'field-error');
-        });
-        return;
-      }
-      ctx.get('students', {}).then(function (x) {
-        var found = R.findStudents(x.students || [], text);
-        out.textContent = '';
-        if (!found.length) { ctx.note(out, T.childNoneInPeriod(R.codeQuery(text).toUpperCase())); return; }
-        if (found.length === 1) { show(found[0]); return; }
-        var list = h('div', { class: 'link-results', role: 'list' }, out);
-        found.slice(0, 12).forEach(function (s) {
-          var b = h('button', { type: 'button', class: 'btn-quiet link-pick', role: 'listitem', 'data-u': s.u, 'data-focus': 'child:' + s.u }, list,
-            R.studentLabel(s, ctx.lang()) + ' · ' + I.bandLabel(s.band || 'unknown', ctx.lang()) + ' · ' + ctx.minutesText(s.minutes || 0));
-          b.addEventListener('click', function () { show(s); });
-        });
-      }, function (f) { out.textContent = ''; ctx.note(out, ctx.failureText(f), 'field-error'); });
-    });
-  }
-
   // ---- meters ---------------------------------------------------------------------------------
   function meters(ctx, parent, s) {
     var T = ctx.t(), h = ctx.h, I = ctx.I;
@@ -394,6 +329,10 @@
     if (st.trimmedBefore) ctx.note(sec, T.trimmedNote(ctx.dayText(st.trimmedBefore, { day: 'numeric', month: 'short', year: 'numeric' })));
     var pcs = s.pcs || {};
     if (ctx.has(pcs.seen14d)) ctx.note(sec, T.pcsSeen(pcs.seen14d, pcs.new || 0));
+    // After the update, the 5-minute job tidies the days the earlier version kept, a few
+    // at a time; every number stays the same meanwhile.
+    var cl = s.clearing;
+    if (cl && typeof cl === 'object') ctx.note(sec, T.clearingNote(Number(cl.sessions) || 0, Number(cl.days) || 0));
   }
 
   // Data quality (how far each number can be trusted), from the KPIs of the period.
@@ -404,16 +343,12 @@
     if (ctx.failed(k) || !k.quality) { ctx.missing(box, ctx.failed(k) ? k : null); return; }
     var q = k.quality;
     var rows = [
-      [T.q.linkedShare, I.pct(q.linkedShare), T.qHint.linkedShare],
       [T.q.v2Share, I.pct(q.v2Share), T.qHint.v2Share],
       [T.q.clockEstimatedShare, I.pct(q.clockEstimatedShare), T.qHint.clockEstimatedShare],
       [T.q.unclosedVisits, I.int(q.unclosedVisits), T.qHint.unclosedVisits],
-      [T.q.unknownBandShare, I.pct(q.unknownBandShare), T.qHint.unknownBandShare],
       [T.q.idleHandovers, I.int(q.idleHandovers), T.qHint.idleHandovers],
       [T.q.pcsNew, I.int(q.pcsNew), T.qHint.pcsNew],
-      [T.q.oldVersionSessionShare, I.pct(q.oldVersionSessionShare), T.qHint.oldVersionSessionShare],
-      [T.q.profilesFullPcs, I.int(q.profilesFullPcs), T.qHint.profilesFullPcs],
-      [T.q.forgetfulPcs, I.int(q.forgetfulPcs), T.qHint.forgetfulPcs]
+      [T.q.oldVersionSessionShare, I.pct(q.oldVersionSessionShare), T.qHint.oldVersionSessionShare]
     ];
     C.table(box, T.qualityTitle, [{ label: T.measure }, { label: T.value, num: true }, { label: T.whatItMeans }], rows);
     ctx.note(box, T.lateNote);

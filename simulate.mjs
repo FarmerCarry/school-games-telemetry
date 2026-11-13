@@ -12,22 +12,23 @@
  *       or use another file), --sessions per school day, and runs the store's own 5-minute
  *       rollups (rollupStep) after each day, as the cron would.
  *
- * The school: 600 children in 24 classes (8 per age band, a few without a band) and a lab
- * of 30 PCs, Sunday to Thursday, 07:30 to 13:30, one class per lab slot (six a day, or more
- * on a busy day; each slot's class from the next age band), with the classroom timer in half
- * the slots. Each child keeps a profile (a random code) on the PC they sit at, with their
- * own skill and taste; 5% also play on a second PC, and half of those had the two codes
- * joined by a teacher (the cd event). About a fifth of the sessions are guests; three PCs
- * still run the old portal (wire version 2); one PC forgets its profiles and its code every
- * night; two PCs fill up to 24 profiles. Games come from js/catalog.js (a built-in list
- * when the catalog is not next to this folder): the 3 DDA games adapt their tier, local
- * two-player games have duo rounds, 25 games show a tutorial, and the games without a
- * score send none. Skill rises with log(attempt), faster for older children; children
- * tire after 20 minutes; how often a child retries after a loss depends on the game.
- * Batches go out as the sink sends them: 60 seconds after the first waiting event (20 for
- * the old portal), at every game close and at the session's end; a few PCs are offline for
- * a while and deliver late. The same seed always gives the same batches, so a repeated run
- * adds nothing. Every batch is checked with server/schema.mjs.
+ * The school: 600 children in 24 classes of three ages and a lab of 30 PCs, Sunday to
+ * Thursday, 07:30 to 13:30, one class per lab slot (six a day, or more on a busy day; each
+ * slot's class from the next year), with the classroom timer in half the slots. Each child
+ * has their own skill and taste, and sits at the same PC; 5% also play on a second one.
+ * The portal is the current one (wire version 3, without accounts: no student code, no
+ * age, no profile fields), except on three PCs that still run the old portal (wire
+ * version 2), whose batches still carry an age band, a profile's session-start fields and
+ * level-ups, as an old PC's would; the server ignores them. One PC gets a new code every
+ * night. Games come from js/catalog.js (a built-in list when the catalog is not next to
+ * this folder): the 3 DDA games adapt their tier, local two-player games have duo rounds,
+ * 25 games show a tutorial, and the games without a score send none. Skill rises with
+ * log(attempt), faster for older children; children tire after 20 minutes; how often a
+ * child retries after a loss depends on the game. Batches go out as the sink sends them:
+ * 60 seconds after the first waiting event (20 for the old portal), at every game close and
+ * at the session's end; a few PCs are offline for a while and deliver late. The same seed
+ * always gives the same batches, so a repeated run adds nothing. Every batch is checked
+ * with server/schema.mjs.
  *
  * Tests import history() (the v3 school's batches) and historyV2() (milestone 2's
  * generator: v2 batches only, one per game close, kept for the comparisons with
@@ -396,7 +397,8 @@ function play(school, r, child, pc, startMs, endMs, timer, day) {
 }
 
 // The event in its wire form (v3, or v2 for the old portal: no visit or round numbers and
-// no kinds it did not have).
+// no kinds it did not have). The current portal has no profiles: its session start is the
+// time alone, and it sends no level-up, removed profile or older code.
 function render(e, old) {
   if (old) {
     switch (e.kind) {
@@ -413,7 +415,7 @@ function render(e, old) {
     }
   }
   switch (e.kind) {
-    case 'ss': return ['ss', e.t, e.isNew, e.age, e.since, e.level, e.np, e.cls];
+    case 'ss': return ['ss', e.t];
     case 'go': return ['go', e.t, e.n, e.slug, e.src, e.plays, e.fav];
     case 'ld': return ['ld', e.t, e.n, e.slug, e.ms];
     case 'er': return ['er', e.t, e.n, e.slug, e.err];
@@ -424,9 +426,6 @@ function render(e, old) {
     case 'tu': return ['tu', e.t, e.n, e.slug, e.step];
     case 'fv': return ['fv', e.t, e.n, e.slug, e.on];
     case 'ct': return ['ct', e.t, e.what, e.minutes];
-    case 'lv': return ['lv', e.t, e.level];
-    case 'pr': return ['pr', e.t, e.code];
-    case 'cd': return ['cd', e.t, e.code];
     case 'se': return ['se', e.t, e.ms, e.why];
   }
   return null;
@@ -464,11 +463,11 @@ function sends(events, every, old) {
 // with the time each arrives (late when the PC was offline) and w, the seconds from the
 // session's start to the send.
 function batchesOf(r, school, child, pc, startMs, played) {
-  const { events, profile, old } = played, out = [];
+  const { events, old } = played, out = [];
   // Offline: from a point in the session, sends wait until the PC is back (hours or days later).
   const offline = r.chance(0.02) ? { from: r.int(0, 600), back: startMs + r.int(3, 50) * 3600000 } : null;
   const base = old ? { v: 2, s: r.hex(12), k: OLD_BUILD, m: pc.m, a: child.band, d: pc.d }
-    : { v: 3, s: r.hex(12), k: BUILD, m: pc.m, a: child.band, d: pc.d, u: profile ? profile.code : '', p: pc.code, z: ZONE };
+    : { v: 3, s: r.hex(12), k: BUILD, m: pc.m, d: pc.d, p: pc.code, z: ZONE };
   for (const { at, ev } of sends(events, old ? 20 : 60, old)) {
     const wire = ev.map(e => render(e, old)).filter(Boolean);
     for (let i = 0; i < wire.length; i += MAX_EVENTS) {

@@ -24,45 +24,44 @@
         var wrap = h('div', { class: 'table-wrap' }, box);
         var table = h('table', { class: 'data pcs' }, wrap);
         h('caption', { class: 'sr-only' }, table, T.pcsTable);
-        var cols = [T.pcCol, T.lastSeen, T.playSessions, T.studentsCol, T.guestShare, T.smooth, T.loadTime, T.inputDelay, T.fails, T.profilesUsed, T.buildCol, T.lookAt];
+        var cols = [T.pcCol, T.lastSeen, T.playSessions, T.playTime, T.smooth, T.loadTime, T.inputDelay, T.fails, T.buildCol, T.lookAt];
         var hr = h('tr', null, h('thead', null, table));
-        cols.forEach(function (label, i) { h('th', { scope: 'col', class: i >= 2 && i <= 9 ? 'num' : null }, hr, label); });
+        cols.forEach(function (label, i) { h('th', { scope: 'col', class: i >= 2 && i <= 7 ? 'num' : null }, hr, label); });
         var body = h('tbody', null, table);
         pcs.forEach(function (p) {
           var tr = h('tr', { 'data-pc': p.p }, body);
           h('th', { scope: 'row', dir: 'ltr' }, tr, p.label);
           h('td', null, tr, p.lastDay ? ctx.shortDay(p.lastDay) : '—');
-          [I.int(p.sessions), I.int(p.students), I.pct(p.guestShare), I.pct(p.smoothShare), ctx.secondsText(p.avgLoadMs), I.pct(p.slowInputShare), I.int(p.errors),
-            p.npMax == null ? '—' : I.int(p.npMax)].forEach(function (v, i) { h('td', { class: 'num', 'data-label': cols[i + 2] }, tr, v); });
+          [I.int(p.sessions), ctx.minutesText(p.minutes || 0), I.pct(p.smoothShare), ctx.secondsText(p.avgLoadMs), I.pct(p.slowInputShare), I.int(p.errors)]
+            .forEach(function (v, i) { h('td', { class: 'num', 'data-label': cols[i + 2] }, tr, v); });
           h('td', { dir: 'ltr', class: 'build' }, tr, p.build ? p.build.slice(0, 7) : '—');
           var flags = h('td', { class: 'flags' }, tr);
           if (!p.flags.length) h('span', { class: 'flag-ok' }, flags, T.noProblem);
-          p.flags.forEach(function (f) { ctx.flagChip(flags, flagName(T, f)).title = T.pcFlagHint[f]; });
+          p.flags.forEach(function (f) { ctx.flagChip(flags, T.pcFlag[f]).title = T.pcFlagHint[f]; });
         });
         var flagged = pcs.filter(function (p) { return p.flags.length; }).length;
         ctx.note(box, T.pcsFlagged(flagged, pcs.length));
       }
 
-      // Students per PC, and health per kind of PC.
+      // Play per PC, and health per kind of PC.
       var grid = h('div', { class: 'grid-2' }, view);
-      var c = ctx.card(grid, 'pc-students', T.studentsPerPc, T.studentsPerPcSub, true);
-      var list = pcs.slice().sort(function (a, b) { return b.students - a.students || (a.label < b.label ? -1 : 1); });
-      var max = list.length ? list[0].students || 1 : 1;
+      var c = ctx.card(grid, 'pc-play', T.playPerPc, T.playPerPcSub, true);
+      var list = pcs.slice().sort(function (a, b) { return b.minutes - a.minutes || b.sessions - a.sessions || (a.label < b.label ? -1 : 1); });
+      var max = list.length ? list[0].minutes || 1 : 1;
       if (!list.length) ctx.note(c.chart, T.pcsNone);
       else ctx.draw(function () {
         if (c.chart.hidden) return;
-        C.barList(c.chart, { name: T.studentsPerPc, rtl: ctx.rtl(), color: 'var(--s1)', max: max, rows: list.map(function (p) {
-          return { label: T.pcLabel(p.label), value: p.students, valueText: I.int(p.students),
-            tip: { title: T.pcLabel(p.label), rows: [{ value: T.nStudents(p.students) }, { value: I.int(p.guests), label: T.guestSessions }, { value: ctx.t().nSessions(p.sessions) }] } };
+        C.barList(c.chart, { name: T.playPerPc, rtl: ctx.rtl(), color: 'var(--s1)', max: max, rows: ctx.top('pc-play', list).map(function (p) {
+          return { label: T.pcLabel(p.label), value: p.minutes, valueText: ctx.minutesText(p.minutes),
+            tip: { title: T.pcLabel(p.label), rows: [{ value: ctx.minutesText(p.minutes), label: T.ofPlay }, { value: ctx.t().nSessions(p.sessions) }, { value: T.nDays(p.days) }] } };
         }) });
       });
-      C.table(c.table, T.studentsPerPc, [{ label: T.pcCol }, { label: T.studentsCol, num: true }, { label: T.guestSessions, num: true }, { label: T.playSessions, num: true }],
-        list.map(function (p) { return [p.label, I.int(p.students), I.int(p.guests), I.int(p.sessions)]; }));
+      ctx.moreButton(c.foot, 'pc-play', list.length, T.showAllPcs);
+      C.table(c.table, T.playPerPc, [{ label: T.pcCol }, { label: T.playTime, num: true }, { label: T.playSessions, num: true }, { label: T.daysPlayed, num: true }],
+        list.map(function (p) { return [p.label, ctx.minutesText(p.minutes), I.int(p.sessions), I.int(p.days)]; }));
       byType(ctx, grid, data.kpis);
     }
   };
-
-  function flagName(T, f) { return f === 'full' ? T.profilesFull : f === 'forgets' ? T.forgetsProfiles : T.pcFlag[f]; }
 
   // By PC type: smooth motion per processor, memory and screen bucket.
   function byType(ctx, parent, k) {
