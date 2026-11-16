@@ -124,10 +124,10 @@ const NONE = { tables: [], index: 0, sessions: 0, attempts: 0, marks: 0, live: f
 
 test('an older portal\'s batch is accepted, v3 and v2, and nothing of its student code, age band, profile, level-ups, removed profiles or older codes is stored', async t => {
   const now = Date.parse('2026-10-20T09:15:00Z'), clock = { now };
-  const app = createApp({ dbPath: path.join(tmp, 'accepted.db'), adminToken: TOKEN, now: () => clock.now, dashboardDir: null });
+  const app = createApp({ dbPath: path.join(tmp, 'accepted.db'), allowedOrigins: ['https://school.example'], adminToken: TOKEN, now: () => clock.now, dashboardDir: null });
   t.after(() => app.close());
   const base = 'http://127.0.0.1:' + (await app.listen(0, '127.0.0.1')).port;
-  const post = body => fetch(base + '/v1/batch', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(body) });
+  const post = body => fetch(base + '/v1/batch', { method: 'POST', headers: { 'content-type': 'text/plain', origin: 'https://school.example' }, body: JSON.stringify(body) });
   // The older v3 batch has every field the accounts had; so has the v2 one (its band, its profile's session start, a level-up).
   assert.deepEqual([old3.u, old3.a, old3.ev[0].length, ['cd', 'pr', 'lv'].every(kind => old3.ev.some(e => e[0] === kind))], ['3f9a0c51e2b7', '8-9', 8, true]);
   assert.deepEqual([old2.a, old2.ev[0].length, old2.ev.some(e => e[0] === 'lv')], ['6-7', 6, true]);

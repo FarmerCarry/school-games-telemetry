@@ -433,8 +433,8 @@ test('no value of a research file can hold a comma, a quote or a line break: eve
   // The most unusual tokens the ingest takes still give lines of exactly COLUMNS fields.
   const { COLUMNS, FILES } = await import('../export.mjs');
   const s = open();
-  await s.ingest(v3('fa0000000001', [ss3(), ['go', 1, 1, 'a-b-c', 'surprise', 0, 0], ['rs', 2, 1, 1, 'a-b-c', 'w1-2:duo.b_x', 0, 0],
-    ['re', 9, 1, 1, 'a-b-c', 'd', 'w1-2:duo.b_x', 7000, -1, 0, 0, 0, z6, [7000, 3, 0, 0, 0, 0, -1]], ['er', 10, 1, 'a-b-c', 'x'], ['ct', 11, 'c', 0],
+  await s.ingest(v3('fa0000000001', [ss3(), ['go', 1, 1, 'fire-and-ice', 'surprise', 0, 0], ['rs', 2, 1, 1, 'fire-and-ice', 'w1-2:duo.b_x', 0, 0],
+    ['re', 9, 1, 1, 'fire-and-ice', 'd', 'w1-2:duo.b_x', 7000, -1, 0, 0, 0, z6, [7000, 3, 0, 0, 0, 0, -1]], ['er', 10, 1, 'fire-and-ice', 'x'], ['ct', 11, 'c', 0],
     ['pr', 12, U2], ['se', 13, 7000, 'p']], { a: '', z: 'America/Port-au-Prince', m: 'app', k: 'src' }), T0);
   await s.store.rollupStep(T0 + DAY_MS);
   for (const file of FILES) {

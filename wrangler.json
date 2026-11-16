@@ -12,5 +12,11 @@
     "ALLOWED_ORIGINS": "https://farmercarry.github.io",
     "RETENTION_DAYS": "400"
   },
-  "observability": { "enabled": false }
+  "observability": { "enabled": false },
+  "previews": {
+    "vars": {
+      "ALLOWED_ORIGINS": "https://farmercarry.github.io",
+      "RETENTION_DAYS": "400"
+    }
+  }
 }

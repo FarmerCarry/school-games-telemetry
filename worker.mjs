@@ -3,10 +3,12 @@
 // assets bound as env.ASSETS, and the rollups and the purge from the cron triggers
 // (wrangler.json).
 // Settings come from env: ALLOWED_ORIGINS and RETENTION_DAYS (plain variables),
-// ADMIN_TOKEN (a secret: the dashboard password) and the optional RATE_PER_MIN.
-// Nothing about a request is logged; the client address (CF-Connecting-IP) only keys the
-// soft in-memory rate limit of this instance.
-import { createHandler, isAdminToken, parseOrigins } from './handler.mjs';
+// ADMIN_TOKEN (a secret: the dashboard password) and the optional RATE_PER_MIN and
+// BATCH_PER_MIN. Nothing about a request is logged; the client address
+// (CF-Connecting-IP) only keys the in-memory rate limits of this instance. A
+// BATCH_LIMIT binding, if one is present, is used as well. It is not declared in
+// wrangler.json: Workers Builds for this account fails the deploy when it is.
+import { createHandler, DEFAULT_BATCH_PER_MIN, DEFAULT_RATE_PER_MIN, isAdminToken, parseOrigins } from './handler.mjs';
 import { RETENTION_DAYS, openStore } from './store.mjs';
 
 const SWEEP_CRON = '*/5 * * * *';
@@ -26,7 +28,8 @@ const missingDatabase = {
 const instances = new WeakMap();
 function instance(env) {
   const db = env.DB || missingDatabase;
-  const settings = [env.ALLOWED_ORIGINS, env.ADMIN_TOKEN, env.RETENTION_DAYS, env.RATE_PER_MIN].join('\n');
+  const settings = [env.ALLOWED_ORIGINS, env.ADMIN_TOKEN, env.RETENTION_DAYS, env.RATE_PER_MIN, env.BATCH_PER_MIN,
+    env.BATCH_LIMIT ? '1' : '0'].join('\n');
   const cached = instances.get(db);
   if (cached && cached.settings === settings && cached.assets === env.ASSETS) return cached;
   const store = openStore(db, { retentionDays: whole(env.RETENTION_DAYS, RETENTION_DAYS, 1, 36500), openCacheMs: OPEN_CACHE_MS });
@@ -36,7 +39,20 @@ function instance(env) {
     // Without a valid password the admin endpoints answer 404, and the dashboard says
     // that the password was not set.
     adminToken: isAdminToken(env.ADMIN_TOKEN) ? env.ADMIN_TOKEN : '',
-    ratePerMin: whole(env.RATE_PER_MIN, 1200, 0, 1e9),
+    ratePerMin: whole(env.RATE_PER_MIN, DEFAULT_RATE_PER_MIN, 0, 1e9),
+    batchPerMin: whole(env.BATCH_PER_MIN, DEFAULT_BATCH_PER_MIN, 0, 1e9),
+    // Optional. Not declared in wrangler.json, because the account's Workers Build
+    // cannot provision a rate-limit binding. The in-memory limit above still applies.
+    // The key is the client address and is not stored.
+    batchLimit: env.BATCH_LIMIT ? async key => {
+      try {
+        const { success } = await env.BATCH_LIMIT.limit({ key: key || 'unknown' });
+        return success ? 0 : 60;
+      } catch {
+        console.error('telemetry: batch rate limit unavailable');
+        return 0;
+      }
+    } : null,
     // Internal errors only (a message, never the request).
     log: message => console.error(message),
     assets: env.ASSETS ? request => env.ASSETS.fetch(request) : null

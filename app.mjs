@@ -7,7 +7,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHandler, MAX_BODY, MAX_RANGE_DAYS } from './handler.mjs';
+import { createHandler, DEFAULT_BATCH_PER_MIN, DEFAULT_RATE_PER_MIN, MAX_BODY, MAX_RANGE_DAYS } from './handler.mjs';
 import { openDatabase } from './sqlite-d1.mjs';
 import { RETENTION_DAYS, openStore } from './store.mjs';
 import { staticFiles } from './static.mjs';
@@ -65,13 +65,15 @@ function requestBody(req) {
 
 export function createApp(options = {}) {
   const config = {
-    dbPath: ':memory:', allowedOrigins: [], adminToken: '', retentionDays: RETENTION_DAYS, ratePerMin: 1200,
+    dbPath: ':memory:', allowedOrigins: [], adminToken: '', retentionDays: RETENTION_DAYS,
+    ratePerMin: DEFAULT_RATE_PER_MIN, batchPerMin: DEFAULT_BATCH_PER_MIN,
     trustProxy: 0, now: Date.now, log: () => {}, dashboardDir: DASHBOARD, ...options
   };
   const { now, log } = config;
   const store = config.store || openStore(openDatabase(config.dbPath), { retentionDays: config.retentionDays });
   const handle = createHandler({
-    store, allowedOrigins: config.allowedOrigins, adminToken: config.adminToken, ratePerMin: config.ratePerMin, now, log,
+    store, allowedOrigins: config.allowedOrigins, adminToken: config.adminToken,
+    ratePerMin: config.ratePerMin, batchPerMin: config.batchPerMin, now, log,
     assets: config.dashboardDir ? staticFiles(config.dashboardDir) : null
   });
   let timer = null, sweeper = null, roller = null, closing = null;

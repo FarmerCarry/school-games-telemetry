@@ -5,8 +5,10 @@
  * (docs/RESEARCH_TELEMETRY_SPEC.md, §F.7).
  *
  *   node server/simulate.mjs [--url http://127.0.0.1:8787] [--sessions 300] [--seed 1]
+ *       [--origin https://farmercarry.github.io]
  *       posts that many sessions of children playing in the last half hour to a running
- *       server (each batch's w is taken when it is sent).
+ *       server (each batch's w is taken when it is sent). The server must list --origin
+ *       in ALLOWED_ORIGINS; the live site's origin is the default.
  *   node server/simulate.mjs --db server/data/dev.db [--days 28] [--sessions 120] [--seed 1]
  *       writes the last --days days straight into a database file (stop the server first
  *       or use another file), --sessions per school day, and runs the store's own 5-minute
@@ -48,7 +50,8 @@ const FALLBACK_GAMES = ['bubble-bop', 'road-hopper', 'dino-3d', 'neon-slope', 't
   'hoop-heads', 'candy-rope', 'maze-dash', 'paint-grab', 'pizza-clicker', 'air-hockey', 'tic-tac-toe'];
 
 function parseArgs(args) {
-  const options = { url: 'http://127.0.0.1:8787', sessions: null, seed: 1, db: '', days: 28 };
+  const options = { url: 'http://127.0.0.1:8787', sessions: null, seed: 1, db: '', days: 28,
+    origin: 'https://farmercarry.github.io' };
   for (let i = 0; i < args.length; i++) {
     const name = args[i].replace(/^--/, ''), value = args[++i];
     if (!Object.hasOwn(options, name) || value === undefined) throw new Error('usage: see the header of server/simulate.mjs');
@@ -553,9 +556,9 @@ function playingNow({ sessions, seed, now = Date.now(), games = catalogSlugs() }
   return out;
 }
 
-async function post(url, batch) {
+async function post(url, batch, origin) {
   for (;;) {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(batch) });
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'text/plain', origin }, body: JSON.stringify(batch) });
     if (res.status !== 429 && res.status !== 503) return res.status;
     await new Promise(resolve => setTimeout(resolve, Number(res.headers.get('retry-after') || 1) * 1000));
   }
@@ -594,7 +597,7 @@ async function main() {
       for (const { batch, startMs } of sessions[next++]) {
         if (batch.v === 3) batch.w = Math.min(691200, Math.round((Date.now() - startMs) / 1000));
         check(batch);
-        const status = await post(url, batch);
+        const status = await post(url, batch, options.origin);
         statuses[status] = (statuses[status] || 0) + 1;
       }
     }

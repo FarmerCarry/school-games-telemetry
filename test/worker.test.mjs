@@ -147,6 +147,10 @@ test('wrangler.json binds what the Worker reads and keeps request logs off', () 
   assert.deepEqual(wrangler.vars, { ALLOWED_ORIGINS: ORIGIN, RETENTION_DAYS: '400' });
   assert.deepEqual(wrangler.triggers, { crons: ['23 3 * * *', '*/5 * * * *'] }, 'the daily purge and the 5-minute rollups');
   assert.deepEqual(wrangler.observability, { enabled: false });
+  // Pull-request builds run `wrangler preview`, which refuses a config with no previews block.
+  assert.deepEqual(wrangler.previews, { vars: { ALLOWED_ORIGINS: ORIGIN, RETENTION_DAYS: '400' } });
+  // A rate-limit binding is not declared. The in-memory BATCH_PER_MIN limit is what ships.
+  assert.equal(wrangler.ratelimits, undefined);
   assert.ok(Date.parse(wrangler.compatibility_date) <= Date.now() - 14 * DAY_MS, 'a compatibility date at least two weeks old');
   const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
   assert.deepEqual(pkg.devDependencies, { wrangler: '4.149.0' });
@@ -194,7 +198,11 @@ test('the Worker stores a batch from the portal once, with CORS and the batch in
     assert.equal(denied.headers.get('access-control-allow-origin'), null);
     assert.equal(denied.headers.get('x-batch-every'), null);
   }
-  assert.equal((await post(env, { ...fixture, b: batchId() }, { origin: '' })).status, 204, 'tools send no Origin');
+  const sessions = (await rows(env, 'st_sessions')).length;
+  const missing = await post(env, { ...fixture, b: batchId() }, { origin: '' });
+  assert.equal(missing.status, 403, 'a script sends no Origin');
+  assert.deepEqual(missing.json(), { error: 'origin' });
+  assert.equal((await rows(env, 'st_sessions')).length, sessions, 'and nothing is stored');
   const preflight = await call(env, 'OPTIONS', '/v1/admin/kpis', { headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'GET' } });
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get('access-control-allow-headers'), 'Content-Type, Authorization');
@@ -203,7 +211,7 @@ test('the Worker stores a batch from the portal once, with CORS and the batch in
   assert.equal((await post(env, fixture, { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } })).status, 415);
   assert.equal((await post(env, 'x'.repeat(64 * 1024 + 1))).status, 413);
   const streamed = new ReadableStream({ pull(c) { c.enqueue(new Uint8Array(40000).fill(32)); } });
-  const request = new Request(BASE + '/v1/batch', { method: 'POST', body: streamed, duplex: 'half', headers: { 'Content-Type': 'text/plain' } });
+  const request = new Request(BASE + '/v1/batch', { method: 'POST', body: streamed, duplex: 'half', headers: { 'Content-Type': 'text/plain', Origin: ORIGIN } });
   assert.equal((await worker.fetch(request, env, ctx)).status, 413, 'an endless body stops at 64 KB');
   assert.equal((await call(env, 'GET', '/v1/batch')).status, 405);
   assert.deepEqual((await call(env, 'GET', '/v1/health')).json(), { ok: true, accepts: [2, 3], schema: SCHEMA_VERSION });
@@ -297,6 +305,33 @@ test('the soft rate limit is keyed by CF-Connecting-IP, in memory only', async (
   assert.doesNotMatch(all, /198\.51\.100/, 'no address is stored');
 });
 
+test('the Cloudflare batch limit is per address and shared by every isolate; a broken binding does not refuse the school', async () => {
+  const seen = new Map();
+  const env = await makeEnv({
+    BATCH_PER_MIN: '0',
+    BATCH_LIMIT: {
+      async limit({ key }) {
+        const used = seen.get(key) || 0;
+        seen.set(key, used + 1);
+        return { success: used < 1 };
+      }
+    }
+  });
+  assert.equal((await post(env, { ...fixture, b: batchId() }, { ip: '203.0.113.8' })).status, 204);
+  const limited = await post(env, { ...fixture, b: batchId() }, { ip: '203.0.113.8' });
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('retry-after'), '60');
+  assert.equal(limited.headers.get('access-control-allow-origin'), ORIGIN);
+  assert.equal((await rows(env, 'batches')).length, 1, 'the limited batch is not stored');
+  assert.equal((await post(env, { ...fixture, b: batchId() }, { ip: '203.0.113.9' })).status, 204, 'another address has its own count');
+  assert.equal((await rows(env, 'batches')).length, 2);
+  const down = await makeEnv({
+    BATCH_PER_MIN: '0',
+    BATCH_LIMIT: { async limit() { throw new Error('binding down'); } }
+  });
+  assert.equal((await post(down, { ...fixture, b: batchId() })).status, 204);
+});
+
 test('paths outside /v1/ go to the static assets; the API never does', async () => {
   const env = await makeEnv();
   const page = await call(env, 'GET', '/');
@@ -355,13 +390,14 @@ test('every invocation stays inside D1\'s free limits: the upgrade alone (503), 
   await old.DB.batch([old.DB.prepare("UPDATE settings SET value = '2026-10-18' WHERE key = 'facts_since'"),
     old.DB.prepare("UPDATE settings SET value = '2026-10-19' WHERE key = 'rolled_through'"),
     old.DB.prepare("INSERT INTO roll_days (day, dirty, rolled_s) VALUES ('2026-10-19', 0, 1)")]);
-  const games = Array.from({ length: 38 }, (_, i) => 'game-' + i);
+  const { GAME_SLUGS } = await import('../games.mjs');
+  const games = GAME_SLUGS.slice(0, 38);
   const wide = envelope3('f0000000000a', [['ss', 0, 0, 30, 1, 5, 7, 1], ['pr', 0, '77aa00bb11cc'], ['cd', 0, '1b2c3d4e5f60'], ['ct', 1, 's', 20],
     ...games.flatMap((slug, i) => [['go', 2 + i, i + 1, slug, 'catalog', 1, 0], ['rs', 2 + i, i + 1, 1, slug, 'L1', 1, 0],
       ['re', 3 + i, i + 1, 1, slug, 'w', 'L1', 9000, 5, 1, 2, 1, z6, null], ['tu', 3 + i, i + 1, slug, 's'], ['gx', 4 + i, i + 1, slug, 9000, z6, z4]]),
     ['lv', 60, 6], ['se', 61, 50000, 'p']], { z: 'Asia/Riyadh', w: DAY_MS / 1000 });
   assert.equal(wide.ev.length, 196);
-  wide.ev.push(['fv', 62, 1, 'game-0', 1], ['gp', 62, 1, 'game-0', 9000], ['ld', 62, 1, 'game-0', 500], ['er', 62, 1, 'game-0', 'x']);
+  wide.ev.push(['fv', 62, 1, games[0], 1], ['gp', 62, 1, games[0], 9000], ['ld', 62, 1, games[0], 500], ['er', 62, 1, games[0], 'x']);
   assert.equal(validateBatch(wide).events.length, 197, 'the level-up, the removed profile and the older code are read past');
   assert.equal(validateBatch(wide).dropped, 0);
   clock.now += 5000;
@@ -372,10 +408,10 @@ test('every invocation stays inside D1\'s free limits: the upgrade alone (503), 
   assert.ok(n <= 20, `the worst batch took ${n} statements`);
   assert.deepEqual((await rows(next, 'roll_days')).map(r => r.dirty), [2], 'it marked the late day, then the zone change rebuilt it');
   assert.equal((await rows(next, 'st_rounds')).length, 38);
-  // 200 events over 100 games and levels (v2): still one statement per table.
+  // 200 events across the catalog (v2): still one statement per table.
   const v2wide = envelope('f00000000009', [
-    ...Array.from({ length: 100 }, (_, i) => ['go', i, 'game-' + i, 'catalog', 0]),
-    ...Array.from({ length: 100 }, (_, i) => ['rs', i, 'game-' + i, 'L' + (i % 50 + 1), 1, 0])
+    ...Array.from({ length: 100 }, (_, i) => ['go', i, GAME_SLUGS[i % GAME_SLUGS.length], 'catalog', 0]),
+    ...Array.from({ length: 100 }, (_, i) => ['rs', i, GAME_SLUGS[i % GAME_SLUGS.length], 'L' + (i % 50 + 1), 1, 0])
   ]);
   ({ n, result: res } = await measureNext(() => post(next, v2wide)));
   assert.equal(res.status, 204);
