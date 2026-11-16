@@ -196,7 +196,7 @@
     ] },
     { file: 'pcs', from: 'server', one: ['PC code with play in the period', 'رمز جهاز لُعب عليه خلال الفترة'], columns: [
       c('pc', 'code', '', HEX, 'The PC code: 12 random hex digits made once on each PC. PCs on the old version send none and are not listed.', 'رمز الجهاز: 12 خانة ست عشرية عشوائية تُنشأ مرة واحدة على كل جهاز. أجهزة الإصدار القديم لا ترسله فلا تظهر هنا.', 'envelope.p'),
-      c('pc_label', 'text', '', '', 'The first 4 characters of the code in capitals, as the dashboard and the teacher page show it.', 'أول 4 خانات من الرمز بأحرف كبيرة، كما تعرضه لوحة المتابعة وصفحة المعلم.'),
+      c('pc_label', 'text', '', '', 'The first 4 characters of the PC code in capitals, as shown on the dashboard.', 'أول 4 خانات من رمز الجهاز بأحرف كبيرة، كما تعرضه لوحة المتابعة.'),
       c('first_day', 'date', '', '', 'The first day the server saw this PC, in any period.', 'أول يوم رأى فيه الخادم هذا الجهاز، في أي فترة.'),
       c('last_day', 'date', '', '', 'The latest day the server saw this PC, in any period.', 'آخر يوم رأى فيه الخادم هذا الجهاز، في أي فترة.'),
       c('days', 'integer', 'days', '', 'Days with play in the period.', 'الأيام التي لُعب فيها خلال الفترة.'),

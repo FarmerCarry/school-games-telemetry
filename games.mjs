@@ -3,16 +3,15 @@
 // An event for any other slug is dropped, so a made-up game never reaches the database
 // or the dashboard.
 //
-// When a game is added to the site, add its slug here too, in alphabetical order.
+// When a game is added to the site, add its slug here too, in alphabetical order,
+// and run `node dashboard/make-names.mjs` so `dashboard/names.js` stays in sync.
 // Until you do, that game's events are ignored and the rest of the batch is kept.
-// The list is the 44 games on the site, plus the six from school-games pull request 99
-// (Splat Catapult, Recess Kitchen, Desk Karts, Toy Castle Clash, Magic Crayon, Juicy Drop),
-// whose slugs are splat-catapult, recess-kitchen, desk-karts, toy-castle, magic-crayon
-// and juicy-drop.
+// The list is all 52 games in js/catalog.js.
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const GAME_SLUGS = [
   'air-hockey',
+  'balloon-blast',
   'beat-dash',
   'blob-battle',
   'block-burst',
@@ -45,6 +44,7 @@ export const GAME_SLUGS = [
   'rail-rush',
   'recess-kitchen',
   'road-hopper',
+  'robo-swarm',
   'seek-zoom',
   'shortcut-factory',
   'skybound-golf',

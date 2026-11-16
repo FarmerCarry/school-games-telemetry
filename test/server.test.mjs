@@ -697,13 +697,23 @@ test('CORS echoes only listed origins, never with credentials, and null only whe
 test('a batch must name the site, and a game that is not in the catalog is not stored', async t => {
   const { isGameSlug } = await import('../schema.mjs');
   const { GAME_SLUGS } = await import('../games.mjs');
-  assert.equal(GAME_SLUGS.length, 50);
+  assert.equal(GAME_SLUGS.length, 52);
   assert.deepEqual(GAME_SLUGS, [...GAME_SLUGS].sort());
   assert.equal(new Set(GAME_SLUGS).size, GAME_SLUGS.length);
-  for (const slug of ['bubble-bop', 'road-hopper', 'splat-catapult', 'recess-kitchen', 'desk-karts', 'toy-castle', 'magic-crayon', 'juicy-drop']) {
+  for (const slug of ['bubble-bop', 'road-hopper', 'splat-catapult', 'recess-kitchen', 'desk-karts', 'toy-castle', 'magic-crayon', 'juicy-drop', 'robo-swarm', 'balloon-blast']) {
     assert.equal(isGameSlug(slug), true, slug);
   }
   assert.equal(isGameSlug('fake-game'), false);
+
+  const vm = await import('node:vm');
+  const fs = await import('node:fs');
+  const dashWindow = {};
+  vm.runInNewContext(fs.readFileSync(new URL('../dashboard/names.js', import.meta.url), 'utf8'), { window: dashWindow });
+  vm.runInNewContext(fs.readFileSync(new URL('../dashboard/scores.js', import.meta.url), 'utf8'), { window: dashWindow });
+  assert.deepEqual(Object.keys(dashWindow.SG_GAME_NAMES), GAME_SLUGS, 'dashboard/names.js SG_GAME_NAMES must match games.mjs');
+  assert.deepEqual(Object.keys(dashWindow.SG_GAME_INFO), GAME_SLUGS, 'dashboard/names.js SG_GAME_INFO must match games.mjs');
+  const noScore = new Set(['block-world', 'connect-four', 'critter-mart', 'pizza-clicker', 'tank-splat', 'tic-tac-toe']);
+  assert.deepEqual(Object.keys(dashWindow.SG_SCORES), GAME_SLUGS.filter(s => !noScore.has(s)), 'dashboard/scores.js must cover all score-reporting games');
 
   const s = await start(t);
   const fake = envelope3('aa0000000001', [

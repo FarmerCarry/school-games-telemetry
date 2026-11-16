@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Writes server/dashboard/names.js, the game names the dashboard shows when the
+ * Writes dashboard/names.js, the game names the dashboard shows when the
  * games site does not publish js/catalog.js on its own (the fast build inlines the
  * catalog into its pages, so the published site answers 404 for it), with each game's
  * categories, players and input style (SG_GAME_INFO, with whether the game's own code
@@ -8,10 +8,9 @@
  * shows a tutorial with Kit.stats.tutorial) and the category names (SG_CATEGORIES: the
  * catalog's Arabic label and the English one from CATEGORY_EN):
  *
- *   node server/dashboard/make-names.mjs
+ *   SG_SITE_DIR=../school-games node dashboard/make-names.mjs
  *
- * Run it after a game is added or renamed in js/catalog.js;
- * tools/tests/dashboard-insights.test.mjs fails while names.js is out of date.
+ * Run it after a game is added or renamed in js/catalog.js.
  * (A development script: .assetsignore keeps it out of the deployed files.)
  */
 import fs from 'node:fs';
@@ -20,8 +19,13 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CATALOG = path.resolve(HERE, '../../js/catalog.js');
-const GAMES = path.resolve(HERE, '../../games');
+const SITE_ROOT = process.env.SG_SITE_DIR
+  ? path.resolve(process.env.SG_SITE_DIR)
+  : fs.existsSync(path.resolve(HERE, '../../js/catalog.js'))
+    ? path.resolve(HERE, '../..')
+    : path.resolve(HERE, '../../school-games');
+const CATALOG = path.join(SITE_ROOT, 'js/catalog.js');
+const GAMES = path.join(SITE_ROOT, 'games');
 const OUT = path.join(HERE, 'names.js');
 
 // English names of the catalog's categories (the catalog itself is Arabic only).

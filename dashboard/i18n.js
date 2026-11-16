@@ -349,7 +349,7 @@
     reactionCol: 'Reaction time',
 
     // ---- PCs ------------------------------------------------------------------------------------------
-    findPc: 'How to find a PC: open the teacher page on that PC to see its code.',
+    findPc: 'Each PC is shown by the first 4 characters of its random code (localStorage sg:site:rid on that PC).',
     pcsTable: 'Each PC',
     pcsNone: 'No PC on the new version has sent play in this period yet.',
     lastSeen: 'Last seen',
@@ -798,7 +798,7 @@
     reactionCol: 'زمن الاستجابة',
 
     // ---- الأجهزة ----------------------------------------------------------------------------------
-    findPc: 'لمعرفة جهاز ما: افتح صفحة المعلم على ذلك الجهاز لترى رمزه.',
+    findPc: 'يُعرض كل جهاز بأول 4 خانات من رمزه العشوائي (localStorage sg:site:rid على ذلك الجهاز).',
     pcsTable: 'كل جهاز',
     pcsNone: 'لم يرسل أي جهاز على الإصدار الجديد لعبًا في هذه الفترة بعد.',
     lastSeen: 'آخر ظهور',
