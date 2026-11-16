@@ -147,7 +147,9 @@ test('wrangler.json binds what the Worker reads and keeps request logs off', () 
   assert.deepEqual(wrangler.vars, { ALLOWED_ORIGINS: ORIGIN, RETENTION_DAYS: '400' });
   assert.deepEqual(wrangler.triggers, { crons: ['23 3 * * *', '*/5 * * * *'] }, 'the daily purge and the 5-minute rollups');
   assert.deepEqual(wrangler.observability, { enabled: false });
-  assert.deepEqual(wrangler.ratelimits, [{ name: 'BATCH_LIMIT', namespace_id: '67067', simple: { limit: 120, period: 60 } }]);
+  // A rate-limit binding is not declared: Workers Builds on this account fails the
+  // deploy when wrangler.json has one. The in-memory BATCH_PER_MIN limit is what ships.
+  assert.equal(wrangler.ratelimits, undefined);
   assert.ok(Date.parse(wrangler.compatibility_date) <= Date.now() - 14 * DAY_MS, 'a compatibility date at least two weeks old');
   const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
   assert.deepEqual(pkg.devDependencies, { wrangler: '4.149.0' });

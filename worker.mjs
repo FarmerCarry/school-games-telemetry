@@ -3,10 +3,11 @@
 // assets bound as env.ASSETS, and the rollups and the purge from the cron triggers
 // (wrangler.json).
 // Settings come from env: ALLOWED_ORIGINS and RETENTION_DAYS (plain variables),
-// ADMIN_TOKEN (a secret: the dashboard password), the optional RATE_PER_MIN and
-// BATCH_PER_MIN, and the BATCH_LIMIT binding (the same batch limit in every isolate
-// of a Cloudflare location). Nothing about a request is logged; the client address
-// (CF-Connecting-IP) only keys the rate limits.
+// ADMIN_TOKEN (a secret: the dashboard password) and the optional RATE_PER_MIN and
+// BATCH_PER_MIN. Nothing about a request is logged; the client address
+// (CF-Connecting-IP) only keys the in-memory rate limits of this instance. A
+// BATCH_LIMIT binding, if one is present, is used as well. It is not declared in
+// wrangler.json: Workers Builds for this account fails the deploy when it is.
 import { createHandler, DEFAULT_BATCH_PER_MIN, DEFAULT_RATE_PER_MIN, isAdminToken, parseOrigins } from './handler.mjs';
 import { RETENTION_DAYS, openStore } from './store.mjs';
 
@@ -40,9 +41,9 @@ function instance(env) {
     adminToken: isAdminToken(env.ADMIN_TOKEN) ? env.ADMIN_TOKEN : '',
     ratePerMin: whole(env.RATE_PER_MIN, DEFAULT_RATE_PER_MIN, 0, 1e9),
     batchPerMin: whole(env.BATCH_PER_MIN, DEFAULT_BATCH_PER_MIN, 0, 1e9),
-    // The same limit in every isolate of a Cloudflare location (wrangler.json, ratelimits).
-    // A missing or failing binding leaves the in-memory limit above. The key is the client
-    // address and is not stored.
+    // Optional. Not declared in wrangler.json, because the account's Workers Build
+    // cannot provision a rate-limit binding. The in-memory limit above still applies.
+    // The key is the client address and is not stored.
     batchLimit: env.BATCH_LIMIT ? async key => {
       try {
         const { success } = await env.BATCH_LIMIT.limit({ key: key || 'unknown' });

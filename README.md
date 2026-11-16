@@ -95,7 +95,7 @@ Control never send anything.
 | File | What it does |
 |---|---|
 | `worker.mjs` | Cloudflare entry: `fetch` (the handler on the D1 database `env.DB`, the dashboard from `env.ASSETS`) and `scheduled` (the daily purge, and every 5 minutes the rollups and the sweep of the live rows). |
-| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, the batch rate limit (`BATCH_LIMIT`, 120 reports a minute per school address in each Cloudflare location), request logs (observability) off. |
+| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, request logs (observability) off. |
 | `package.json`, `package-lock.json` | Wrangler 4.149.0 for deploying (a development tool only), the plain-English descriptions the Deploy button shows, `npm start` for Node, `npm test` for the tests and `npm run demo` for the dashboard's sample data. |
 | `.dev.vars.example` | Tells the Deploy button to ask for the `ADMIN_TOKEN` secret (empty on purpose). |
 | `handler.mjs` | The HTTP rules as a Fetch-API handler, shared by both hosts: routes, CORS, the soft rate limit, body limits, admin password, the admin router (methods, parameters, guards), status codes. |
@@ -223,7 +223,7 @@ All settings are environment variables.
 | `ADMIN_TOKEN` | none | The dashboard password: the bearer token for `/v1/admin/*`, at least 16 printable ASCII characters without spaces (use `openssl rand -hex 24`). Unset: the admin endpoints answer `404`. |
 | `RETENTION_DAYS` | `400` | Days of play facts to keep (1 to 36,500); the daily rollups are kept at least 800 days. The owner's choice on the dashboard (`keepDays`) wins. |
 | `RATE_PER_MIN` | `1200` | Requests per minute per client address (token bucket, bursts up to the same number). Generous because a whole school lab shares one NAT address. `0` turns the limit off. |
-| `BATCH_PER_MIN` | `120` | `POST /v1/batch` only, per client address, on top of `RATE_PER_MIN`. A full lab sends about one report a minute per computer, so 120 leaves room for a burst (everyone closing a game together) and slows a script. `0` turns this limit off. On Cloudflare the same number is also enforced across every isolate in a location (`BATCH_LIMIT` in `wrangler.json`). |
+| `BATCH_PER_MIN` | `120` | `POST /v1/batch` only, per client address, on top of `RATE_PER_MIN`. A full lab sends about one report a minute per computer, so 120 leaves room for a burst (everyone closing a game together) and slows a script. `0` turns this limit off. On Cloudflare this limit is per Worker instance. |
 | `TRUST_PROXY` | `0` | Number of reverse proxies in front of the server. With `1`, the client address for the rate limit is the last `X-Forwarded-For` entry (the one your proxy wrote); with `0` it is the socket address, so all traffic through a proxy shares one bucket. |
 
 The server refuses to start on a malformed origin, a short admin token, a bad number,
@@ -232,9 +232,8 @@ or a database written by a newer version of the server.
 On Cloudflare the same settings are `ALLOWED_ORIGINS` and `RETENTION_DAYS` (plain
 variables in `wrangler.json`, default `https://farmercarry.github.io` and `400`),
 `ADMIN_TOKEN` (a secret; an invalid one turns the admin endpoints off rather than
-stopping the Worker), the optional `RATE_PER_MIN` and `BATCH_PER_MIN` (those two are
-per Worker instance) and `BATCH_LIMIT` (120 batches a minute per address, shared by
-every instance in a Cloudflare location).
+stopping the Worker) and the optional `RATE_PER_MIN` and `BATCH_PER_MIN` (both per
+Worker instance).
 
 ### Deploying
 

@@ -12,12 +12,5 @@
     "ALLOWED_ORIGINS": "https://farmercarry.github.io",
     "RETENTION_DAYS": "400"
   },
-  "observability": { "enabled": false },
-  "ratelimits": [
-    {
-      "name": "BATCH_LIMIT",
-      "namespace_id": "67067",
-      "simple": { "limit": 120, "period": 60 }
-    }
-  ]
+  "observability": { "enabled": false }
 }
