@@ -1,6 +1,7 @@
 // The ingest server's HTTP rules as a Fetch-API handler (Request -> Response), shared by
 // the Cloudflare Worker (worker.mjs) and the Node host (app.mjs): routing, CORS, the soft
-// per-client token bucket, body limits, admin authentication, the admin router and status
+// per-client token buckets (every request, and POST /v1/batch on its own), body limits,
+// admin authentication, the admin router and status
 // codes. Paths outside /v1/ go to the host's static files (the dashboard). No IP, header or
 // request body is ever stored or logged; the client key (an address) is only a key of the
 // in-memory token bucket. The request that upgrades the database does only that and is
@@ -17,6 +18,10 @@ import { SCHEMA_VERSION, utcDay } from './store.mjs';
 export const MAX_BODY = 64 * 1024;
 export const MAX_ADMIN_BODY = 4 * 1024;
 export const MAX_RANGE_DAYS = 366;
+// Every request, and POST /v1/batch on its own (a lab shares one address; a script must
+// not be able to outrun that lab). 0 turns that limiter off.
+export const DEFAULT_RATE_PER_MIN = 1200;
+export const DEFAULT_BATCH_PER_MIN = 120;
 const DAY_MS = 86400000;
 const BUCKET_CAP = 100000;
 const encoder = new TextEncoder();
@@ -176,13 +181,17 @@ export function serialize(body) {
 }
 
 // Options: store (store.mjs), allowedOrigins, adminToken ('' turns the admin endpoints
-// off), ratePerMin, now, log (internal errors only), assets (request => Response for
-// paths outside /v1/, or null). Returns handle(request, clientKey) => Promise<Response>.
+// off), ratePerMin, batchPerMin (POST /v1/batch only), batchLimit (optional
+// (clientKey) => Promise<seconds to wait>, the cross-instance limiter; 0 means go
+// ahead), now, log (internal errors only), assets (request => Response for paths
+// outside /v1/, or null). Returns handle(request, clientKey) => Promise<Response>.
 export function createHandler(options) {
-  const { store, allowedOrigins = [], adminToken = '', ratePerMin = 1200, now = Date.now, log = () => {}, assets = null } = options;
+  const { store, allowedOrigins = [], adminToken = '', ratePerMin = DEFAULT_RATE_PER_MIN,
+    batchPerMin = DEFAULT_BATCH_PER_MIN, batchLimit = null, now = Date.now, log = () => {}, assets = null } = options;
   const origins = new Set(allowedOrigins);
   const token = adminToken ? sha256(adminToken) : null;
   const limit = rateLimiter(ratePerMin, now);
+  const batches = rateLimiter(batchPerMin, now);
 
   async function authorized(request) {
     const match = /^Bearer (\S+)$/i.exec(request.headers.get('authorization') || '');
@@ -195,10 +204,19 @@ export function createHandler(options) {
     if (await store.setup?.(t) === 'migrated') throw new HttpError(503, 'updating', { 'Retry-After': '2' });
   }
 
-  async function batch(request) {
+  async function batch(request, clientKey) {
     const origin = request.headers.get('origin');
-    // Browsers always send Origin; a page from another site must not add rows.
-    if (origin !== null && !origins.has(origin)) throw new HttpError(403, 'origin');
+    // The games site is a browser on another host, and a browser always sends Origin on
+    // this POST. A missing Origin (curl, a script) is refused, the same as a wrong one.
+    // Forging the header is still possible; the game list and the batch limit are what
+    // stop that from inventing games or filling the database.
+    if (!origins.has(origin)) throw new HttpError(403, 'origin');
+    const batchWait = batches(clientKey);
+    if (batchWait) throw new HttpError(429, 'rate limited', { 'Retry-After': String(batchWait) });
+    if (batchLimit) {
+      const sharedWait = await batchLimit(clientKey);
+      if (sharedWait) throw new HttpError(429, 'rate limited', { 'Retry-After': String(sharedWait) });
+    }
     const type = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
     if (type !== 'text/plain' && type !== 'application/json') throw new HttpError(415, 'content type');
     const raw = await readBody(request, MAX_BODY);
@@ -208,6 +226,10 @@ export function createHandler(options) {
     const valid = validateBatch(body);
     if (!valid) throw new HttpError(400, 'envelope');
     const t = now();
+    // Once today's writes are already high, refuse before the batch is stored so a
+    // script cannot use up the free plan. The PCs keep the batch and try again.
+    const pause = store.ingestPaused?.(t);
+    if (pause) throw new HttpError(429, pause.error, { 'Retry-After': '60' }, { until: pause.until });
     await ready(t);
     // A repeated batch is answered like a new one, so the client drops it.
     await store.ingest(valid, t);
@@ -288,7 +310,7 @@ export function createHandler(options) {
       }
       if (pathname === '/v1/batch') {
         if (method !== 'POST') throw new HttpError(405, 'method', { Allow: 'POST, OPTIONS' });
-        const every = await batch(request);
+        const every = await batch(request, clientKey);
         return send(204, undefined, every ? { 'X-Batch-Every': String(every) } : {});
       }
       if (pathname === '/v1/health') {

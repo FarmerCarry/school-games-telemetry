@@ -95,7 +95,7 @@ Control never send anything.
 | File | What it does |
 |---|---|
 | `worker.mjs` | Cloudflare entry: `fetch` (the handler on the D1 database `env.DB`, the dashboard from `env.ASSETS`) and `scheduled` (the daily purge, and every 5 minutes the rollups and the sweep of the live rows). |
-| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, request logs (observability) off. |
+| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, the batch rate limit (`BATCH_LIMIT`, 120 reports a minute per school address in each Cloudflare location), request logs (observability) off. |
 | `package.json`, `package-lock.json` | Wrangler 4.149.0 for deploying (a development tool only), the plain-English descriptions the Deploy button shows, `npm start` for Node, `npm test` for the tests and `npm run demo` for the dashboard's sample data. |
 | `.dev.vars.example` | Tells the Deploy button to ask for the `ADMIN_TOKEN` secret (empty on purpose). |
 | `handler.mjs` | The HTTP rules as a Fetch-API handler, shared by both hosts: routes, CORS, the soft rate limit, body limits, admin password, the admin router (methods, parameters, guards), status codes. |
@@ -103,7 +103,8 @@ Control never send anything.
 | `admin.mjs` | The research reads (one game, the `r_stat` metrics, the PCs) and the owner's recount, in SQL over the rollups and the facts not rolled yet. |
 | `export.mjs` | The research export: each file's pinned columns (`COLUMNS`) and its pages of CSV lines, built in SQL. |
 | `rollups.mjs` | The daily rollups of the facts by the school's local day, and milestone 2's frozen daily totals: their tables, and for each rollup the one SQL `SELECT` that defines it. |
-| `schema.mjs` | Validation of the envelope (wire versions 2 and 3) and every event kind; cleans and clamps, and reads past the fields and events of older portals' accounts (never returned, so never stored). |
+| `schema.mjs` | Validation of the envelope (wire versions 2 and 3) and every event kind; cleans and clamps, drops a game that is not in `games.mjs`, and reads past the fields and events of older portals' accounts (never returned, so never stored). |
+| `games.mjs` | The game slugs the site may report, in alphabetical order (the site's `js/catalog.js`, including the six games from school-games pull request 99). Add a line here when a game is added to the site; until then that game's events are ignored. |
 | `clock.mjs` | The school's clock: UTC offsets, local days and the exact bounds of a local day in an IANA zone, from `Intl` alone. |
 | `sqlite-d1.mjs` | A D1-style driver over Node's built-in `node:sqlite`, for the Node host and the tests. |
 | `app.mjs`, `main.mjs` | The Node host: `node:http` in front of the handler, settings from the environment, a purge every 24 hours, the rollups every 5 minutes. |
@@ -218,10 +219,11 @@ All settings are environment variables.
 | `PORT` | `8787` | TCP port. `0` picks a free one (printed at start). |
 | `HOST` | all interfaces | Bind address. Use `127.0.0.1` behind a reverse proxy on the same machine. |
 | `DB_PATH` | `server/data/telemetry.db` | SQLite file (created with its folder). Also writes `-wal` and `-shm` files next to it. |
-| `ALLOWED_ORIGINS` | none | Comma-separated origins of the portal, e.g. `https://name.github.io` (an origin has no path and no trailing slash, even when the site lives at `/school-games/`). Browser requests from any other origin get no CORS header and `POST /v1/batch` answers `403`. The literal `null` (pages from `file:` or sandboxed frames) is accepted only if listed; the portal never sends from `file:`. |
+| `ALLOWED_ORIGINS` | none | Comma-separated origins of the portal, e.g. `https://name.github.io` (an origin has no path and no trailing slash, even when the site lives at `/school-games/`). `POST /v1/batch` answers `403` unless the `Origin` header is exactly one of these, including when the header is missing. The games site is a browser, and a browser sends `Origin` on this request. The literal `null` (pages from `file:` or sandboxed frames) is accepted only if listed; the portal never sends from `file:`. |
 | `ADMIN_TOKEN` | none | The dashboard password: the bearer token for `/v1/admin/*`, at least 16 printable ASCII characters without spaces (use `openssl rand -hex 24`). Unset: the admin endpoints answer `404`. |
 | `RETENTION_DAYS` | `400` | Days of play facts to keep (1 to 36,500); the daily rollups are kept at least 800 days. The owner's choice on the dashboard (`keepDays`) wins. |
 | `RATE_PER_MIN` | `1200` | Requests per minute per client address (token bucket, bursts up to the same number). Generous because a whole school lab shares one NAT address. `0` turns the limit off. |
+| `BATCH_PER_MIN` | `120` | `POST /v1/batch` only, per client address, on top of `RATE_PER_MIN`. A full lab sends about one report a minute per computer, so 120 leaves room for a burst (everyone closing a game together) and slows a script. `0` turns this limit off. On Cloudflare the same number is also enforced across every isolate in a location (`BATCH_LIMIT` in `wrangler.json`). |
 | `TRUST_PROXY` | `0` | Number of reverse proxies in front of the server. With `1`, the client address for the rate limit is the last `X-Forwarded-For` entry (the one your proxy wrote); with `0` it is the socket address, so all traffic through a proxy shares one bucket. |
 
 The server refuses to start on a malformed origin, a short admin token, a bad number,
@@ -230,8 +232,9 @@ or a database written by a newer version of the server.
 On Cloudflare the same settings are `ALLOWED_ORIGINS` and `RETENTION_DAYS` (plain
 variables in `wrangler.json`, default `https://farmercarry.github.io` and `400`),
 `ADMIN_TOKEN` (a secret; an invalid one turns the admin endpoints off rather than
-stopping the Worker) and the optional `RATE_PER_MIN` (the limit is per Worker
-instance, so it is soft).
+stopping the Worker), the optional `RATE_PER_MIN` and `BATCH_PER_MIN` (those two are
+per Worker instance) and `BATCH_LIMIT` (120 batches a minute per address, shared by
+every instance in a Cloudflare location).
 
 ### Deploying
 
@@ -482,12 +485,12 @@ fields are read past (below).
 
 | Status | When |
 |---|---|
-| `204` | Stored, or already stored: a repeated v2 batch id is answered the same, and a v3 batch delivered again changes nothing, so the client drops it. Unknown event kinds and malformed events are dropped silently; the rest of the batch is kept. The header `X-Batch-Every` gives the seconds the PC should wait between batches: `60` while the day's rows written are at most 60,000, `180` up to 80,000, `300` above. |
+| `204` | Stored, or already stored: a repeated v2 batch id is answered the same, and a v3 batch delivered again changes nothing, so the client drops it. Unknown event kinds, malformed events and events whose game is not in `games.mjs` are dropped silently; the rest of the batch is kept. A version 3 batch whose every event was dropped is not stored. The header `X-Batch-Every` gives the seconds the PC should wait between batches: `60` while the day's rows written are at most 60,000, `180` up to 80,000, `300` above. |
 | `400` | Not JSON, or an invalid envelope: `v` is not `2` or `3`; `b` is not 16 lowercase hex; `s` is not 12 lowercase hex; `k` is not `src` or exactly 16 lowercase hex; `m` is not `web`/`app`; `d` is not `[cores, memoryGB, screenWidth]` from the bucket lists; `ev` is not an array of at most 200 entries. |
-| `403` | The request has an `Origin` header that is not in `ALLOWED_ORIGINS`. Requests without `Origin` (tools, `simulate.mjs`) are accepted. |
+| `403` | The `Origin` header is missing or not in `ALLOWED_ORIGINS`. Nothing is stored. |
 | `413` | The body is over 64 KB (65,536 bytes), declared or streamed. |
 | `415` | Another content type. |
-| `429` | Rate limited. |
+| `429` | Rate limited (`Retry-After` is seconds), or today's rows written are already past 70,000 (`{"error": "writes", "until": ...}`). The PC keeps the batch and tries again. |
 | `503` | `{"error": "updating"}` with `Retry-After: 2`: this request created or upgraded the database (one version step) and did nothing else. The portal sends the batch again. Only on Cloudflare: the Node host upgrades at start. |
 
 The fields version 3 adds to the envelope are lenient, because the portal drops a batch
@@ -523,7 +526,8 @@ Event validation (exact length, except `ss`; every field must pass):
 | `ct` | | `t`, classroom timer `s`/`c`/`e`, minutes (≤ 120) |
 | `se` | `t`, engaged ms | `t`, engaged ms, why the session ended `u`/`p`/`h`/`i` |
 
-Slugs match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (at most 40 characters); round ids match
+Slugs match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (at most 40 characters) and must be listed in
+`games.mjs`; any other slug is dropped with its event. Round ids match
 `^[A-Za-z][A-Za-z0-9_:.-]{0,23}$` without three digits in a row. Neither may be a
 built-in object key such as `constructor`. Enumerations, flags, buckets and tiers must
 be exact integers. Measured numbers (`t`, ms, counts, scores, levels, histogram
@@ -586,9 +590,11 @@ once 5 million rows have been read, and every write once 100,000 rows have been
 written. As far as the server's own meter knows: once the day's reads pass 4.2 million,
 the admin reads answer `429 {"error": "reads", "until": "03:00"}`, `until` being the next
 00:00 UTC on the school's clock; export pages answer so from 3.5 million, so that an
-export stops well before the dashboard does; once the day's writes pass 90,000,
-`rebuild` answers `429 {"error": "writes", "until": ...}`. `live` and
-`settings` always answer, and batches are never refused.
+export stops well before the dashboard does; once the day's writes pass 70,000,
+batches answer `429 {"error": "writes", "until": ...}` so a script cannot use up the
+free plan's 100,000 writes (the PCs keep the batch and try again; a busy school day
+writes about 26,000); once the day's writes pass 90,000, `rebuild` answers
+`429 {"error": "writes", "until": ...}`. `live` and `settings` always answer.
 
 Writes are metered per instance and flushed at the start of a batch at most once a
 minute, before anything in that batch reads the day's usage; the crons end by writing
@@ -1107,12 +1113,13 @@ writes kept parts to `kpi_cache` inside the same statements that read them.
   24 classes, a lab of 30 PCs, Sunday to Thursday; three PCs still on wire version 2,
   whose batches still carry an old portal's age band and profile fields, and one PC that
   gets a new code every night), sending at the portal sink's real cadence.
-  `node simulate.mjs --url http://127.0.0.1:8787 [--sessions 300]` posts the sessions of
-  the last half hour to a running server (same `--seed`, same batch ids, so a repeat adds
+  `node simulate.mjs --url http://127.0.0.1:8787 [--sessions 300] [--origin https://farmercarry.github.io]`
+  posts the sessions of the last half hour to a running server (that origin must be
+  listed in `ALLOWED_ORIGINS`; same `--seed`, same batch ids, so a repeat adds
   nothing); `node simulate.mjs --db data/dev.db --days 28 [--sessions 120]` writes four
   weeks of history straight into a Node database file (stop the server first, or use
   another file) and rolls each day up with the store's own rollups, as the cron would.
   Every generated batch passes `schema.mjs`. `npm run demo` rebuilds the dashboard's
   sample data (`dashboard/demo/`) from it.
-* A batch by hand: `curl -X POST -H 'Content-Type: text/plain' --data-binary
+* A batch by hand (the server must list that origin): `curl -X POST -H 'Content-Type: text/plain' -H 'Origin: https://farmercarry.github.io' --data-binary
   @fixtures/sample-batch-v3.json http://127.0.0.1:8787/v1/batch` answers `204`.

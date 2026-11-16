@@ -1,8 +1,8 @@
 // Validation of the telemetry envelope and events: wire version 2 (docs/ARCHITECTURE.md,
 // "Telemetry sink") and version 3 (docs/RESEARCH_TELEMETRY_SPEC.md, "Wire format v3").
 // Everything not described there is dropped here, so nothing else can ever reach the
-// database: unknown envelope fields are ignored, unknown event kinds and malformed events
-// are dropped, and measured numbers are rounded and clamped. The core of the envelope
+// database: unknown envelope fields are ignored, unknown event kinds, malformed events
+// and games that are not in games.mjs are dropped, and measured numbers are rounded and clamped. The core of the envelope
 // (v b s k m d ev), enumerations, flags and buckets must be exact. The fields v3 adds to
 // the envelope (p z w) and a round's extras (re.x) are lenient: a malformed value becomes
 // '' or null and the rest is kept, because the portal drops a batch for good on any 4xx
@@ -14,6 +14,7 @@
 // profiles on the PC, classroom mode), level-ups (lv), removed profiles (pr) and older
 // codes of a student (cd) are read past and never returned, so they cannot be stored.
 import { zoneName } from './clock.mjs';
+import { GAME_SLUGS } from './games.mjs';
 
 export const MODES = ['web', 'app'];
 // The v1 launch sources (docs/PLAY_STATS.md, "Launch source") plus the starter title.
@@ -57,6 +58,11 @@ const VERSION = /^(?:src|[0-9a-f]{16})$/;
 const reserved = v => v in Object.prototype;
 
 export const isSlug = v => typeof v === 'string' && v.length <= 40 && SLUG.test(v) && !reserved(v);
+// A game the site actually has (games.mjs). Anything else is dropped with its event,
+// so a script cannot invent games. Admin queries still use isSlug: a stored slug can
+// be read after it leaves the list.
+const GAMES = new Set(GAME_SLUGS);
+export const isGameSlug = v => GAMES.has(v);
 // Round ids follow the v1 rules: from the game's own list, never typed text or a code.
 export const isId = v => typeof v === 'string' && ID.test(v) && !/[0-9]{3}/.test(v) && !reserved(v);
 const isHex = (v, n) => typeof v === 'string' && v.length === n && /^[0-9a-f]+$/.test(v);
@@ -72,7 +78,7 @@ const histogram = (n, max) => v => {
   return out.includes(undefined) ? undefined : out;
 };
 const time = measure(LIMITS.t);
-const slug = v => isSlug(v) ? v : undefined;
+const slug = v => isSlug(v) && isGameSlug(v) ? v : undefined;
 const id = v => isId(v) ? v : undefined;
 const tier = whole(0, 9);
 const score = v => v === -1 ? -1 : measure(LIMITS.score)(v);

@@ -6,7 +6,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hideSqliteWarning } from './warnings.mjs';
-import { isAdminToken, parseOrigins } from './handler.mjs';
+import { DEFAULT_BATCH_PER_MIN, DEFAULT_RATE_PER_MIN, isAdminToken, parseOrigins } from './handler.mjs';
 import { RETENTION_DAYS } from './store.mjs';
 
 // Before node:sqlite loads: the server modules are imported dynamically below.
@@ -43,7 +43,8 @@ const config = {
   adminToken,
   // Far larger values are past the dates JavaScript can hold, and every purge would fail.
   retentionDays: whole('RETENTION_DAYS', RETENTION_DAYS, 1, 36500),
-  ratePerMin: whole('RATE_PER_MIN', 1200, 0),
+  ratePerMin: whole('RATE_PER_MIN', DEFAULT_RATE_PER_MIN, 0),
+  batchPerMin: whole('BATCH_PER_MIN', DEFAULT_BATCH_PER_MIN, 0),
   trustProxy: whole('TRUST_PROXY', 0, 0),
   log: message => console.log(message)
 };
@@ -64,8 +65,9 @@ try {
 }
 console.log(`telemetry: listening on port ${address.port}; ` +
   `${config.allowedOrigins.length} allowed origin(s), admin ${adminToken ? 'on' : 'off'}, ` +
-  `retention ${config.retentionDays} days, ${config.ratePerMin || 'unlimited'} requests per minute per client`);
-if (!config.allowedOrigins.length) console.warn('telemetry: ALLOWED_ORIGINS is empty, so batches from browsers are refused (403)');
+  `retention ${config.retentionDays} days, ${config.ratePerMin || 'unlimited'} requests per minute per client, ` +
+  `${config.batchPerMin || 'unlimited'} batches per minute per client`);
+if (!config.allowedOrigins.length) console.warn('telemetry: ALLOWED_ORIGINS is empty, so every batch is refused (403)');
 
 let closing = false;
 for (const signal of ['SIGINT', 'SIGTERM']) {

@@ -54,7 +54,10 @@ export const LIMITS = { reads: 5000000, writes: 100000, bytes: 500000000 };
 // under rollReads (and re-rolls' reads under rebuildReads); otherwise it waits, if need be
 // for the next UTC day.
 export const GUARDS = { exportReads: 3500000, adminReads: 4200000, adminWrites: 90000, rollWrites: 85000, reserveWrites: 40000,
-  rollReads: 3000000, rebuildReads: 2000000, bytes: 425000000 };
+  rollReads: 3000000, rebuildReads: 2000000, bytes: 425000000,
+  // Batches pause here, under the free plan's 100,000 writes and above a busy school day
+  // (about 26,000), so nightly work still has room and a script cannot hit the hard stop.
+  ingestWrites: 70000 };
 const DAY_MS = 86400000;
 const DAY_S = 86400;
 const MINUTE_MS = 60000;
@@ -958,6 +961,15 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
 
   // The seconds the PCs should wait between batches (X-Batch-Every), by today's rows written.
   const batchEvery = now => BATCH_EVERY.find(([limit]) => writesToday(now) <= limit)[1];
+  // Null, or { error: 'writes', until } when today's rows written are already past the
+  // ingest pause. Uses this instance's meter only (no query): a script on this instance
+  // stops at once, and the flushed total is seen within a few minutes. The handler
+  // answers 429 before it stores the batch; the PCs keep it and try again.
+  const ingestPaused = now => {
+    if (writesToday(now) <= limits.ingestWrites) return null;
+    const tz = conf?.tz || 'UTC';
+    return { error: 'writes', until: hhmm(localParts(tz, (Math.floor(now / DAY_MS) + 1) * DAY_MS)) };
+  };
   // The school's local day now.
   const today = now => localDay(conf?.tz || 'UTC', now);
   // What every admin answer says about the school's clock.
@@ -969,8 +981,8 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
   // The read and write guards (§D.8): null, or { error: 'reads' | 'writes', until } for a
   // 429, until being when the free allowance starts again (the next 00:00 UTC, on the
   // school's clock). kind: 'read' (an admin read other than live and settings), 'export'
-  // (an export page) or 'write' (an admin action that writes). Ingest is never refused. The
-  // day's usage is read again first when this instance's copy is old.
+  // (an export page) or 'write' (an admin action that writes). Batches are refused by
+  // ingestPaused, not here. The day's usage is read again first when this instance's copy is old.
   async function guard(kind, now = Date.now()) {
     await ensure(now);
     if (now - conf.at >= SETTINGS_MS) await run([], now);
@@ -1456,6 +1468,6 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
   // One page of a research file (export.mjs); exportLimits ({ lines, sessions }) are for tests.
   const page = (query, now = Date.now()) => exportPage(ctx, query, now, exportLimits);
 
-  return { db, setup, ingest, batchEvery, today, guard, rollupStep, purge, sweep, kpis, live, settings, updateSettings, ...views,
+  return { db, setup, ingest, batchEvery, ingestPaused, today, guard, rollupStep, purge, sweep, kpis, live, settings, updateSettings, ...views,
     exportPage: page, close: () => db.close?.() };
 }

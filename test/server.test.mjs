@@ -681,14 +681,65 @@ test('CORS echoes only listed origins, never with credentials, and null only whe
     assert.equal(denied.headers['access-control-expose-headers'], undefined);
   }
   assert.equal(await s.count('batches'), 1);
-  // Tools without a browser send no Origin.
-  assert.equal((await s.post({ ...fixture, b: batchId() }, { origin: '' })).status, 204);
+  // A script sends no Origin. The games site is a browser, which always does.
+  const missing = await s.post({ ...fixture, b: batchId() }, { origin: '' });
+  assert.equal(missing.status, 403);
+  assert.deepEqual(missing.json(), { error: 'origin' });
+  assert.equal(await s.count('batches'), 1, 'a missing Origin stores nothing');
 
   const withNull = await start(t, { allowedOrigins: [ORIGIN, 'null'] });
   const fromFile = await withNull.post(fixture, { origin: 'null' });
   assert.equal(fromFile.status, 204);
   assert.equal(fromFile.headers['access-control-allow-origin'], 'null');
   assert.equal(fromFile.headers['access-control-allow-credentials'], undefined);
+});
+
+test('a batch must name the site, and a game that is not in the catalog is not stored', async t => {
+  const { isGameSlug } = await import('../schema.mjs');
+  const { GAME_SLUGS } = await import('../games.mjs');
+  assert.equal(GAME_SLUGS.length, 50);
+  assert.deepEqual(GAME_SLUGS, [...GAME_SLUGS].sort());
+  assert.equal(new Set(GAME_SLUGS).size, GAME_SLUGS.length);
+  for (const slug of ['bubble-bop', 'road-hopper', 'splat-catapult', 'recess-kitchen', 'desk-karts', 'toy-castle', 'magic-crayon', 'juicy-drop']) {
+    assert.equal(isGameSlug(slug), true, slug);
+  }
+  assert.equal(isGameSlug('fake-game'), false);
+
+  const s = await start(t);
+  const fake = envelope3('aa0000000001', [
+    ['ss', 0],
+    ['go', 1, 1, 'fake-game', 'catalog', 0, 0],
+    ['rs', 2, 1, 1, 'fake-game', 'L1', 1, 0],
+    ['re', 3, 1, 1, 'fake-game', 'w', 'L1', 1000, 1, 1, 1, 0, z6, null],
+    ['go', 4, 2, 'bubble-bop', 'catalog', 0, 0]
+  ]);
+  const kept = validateBatch(fake);
+  assert.equal(kept.dropped, 3, 'the made-up game is dropped and the real one is kept');
+  assert.deepEqual(kept.events.map(event => event[0]), ['ss', 'go']);
+  assert.equal((await s.post(fake)).status, 204);
+  assert.deepEqual((await s.rows('st_visits')).map(row => row.slug), ['bubble-bop']);
+  assert.equal((await s.rows('st_rounds')).length, 0);
+  // A batch of only an unknown game is answered 204 and writes nothing (the PC drops it).
+  const onlyFake = envelope3('aa0000000002', [['go', 1, 1, 'not-a-game', 'direct', 0, 0]]);
+  assert.equal((await s.post(onlyFake)).status, 204);
+  assert.equal(await s.count('st_sessions'), 1);
+  assert.equal(await s.count('st_visits'), 1);
+});
+
+test('POST /v1/batch has its own per-client limit, and the dashboard does not share it', async t => {
+  const s = await start(t, { ratePerMin: 1000, batchPerMin: 2 });
+  const send = body => s.post(envelope3(body, [['ss', 0]]));
+  assert.equal((await send('bb0000000001')).status, 204);
+  assert.equal((await send('bb0000000002')).status, 204);
+  const limited = await send('bb0000000003');
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers['retry-after'], '30');
+  assert.equal(limited.json().error, 'rate limited');
+  assert.equal(await s.count('st_sessions'), 2, 'the limited batch is not stored');
+  assert.equal((await s.send('GET', '/v1/health')).status, 200, 'the dashboard is a different bucket');
+  s.clock.now += 30000;
+  assert.equal((await send('bb0000000003')).status, 204);
+  assert.equal(await s.count('st_sessions'), 3);
 });
 
 test('OPTIONS preflight answers listed origins only', async t => {
@@ -903,7 +954,7 @@ test('the read guard: once today\'s reads pass 4.2 million, admin reads but live
   assert.deepEqual([stopped.status, stopped.json()], [429, { error: 'reads', until: '03:00' }]);
   assert.equal((await s.admin('/v1/admin/live')).status, 200);
   assert.equal((await s.admin('/v1/admin/settings')).status, 200);
-  assert.equal((await s.post(envelope('cb0000000001', [['se', 1, 2]]))).status, 204, 'batches are never refused');
+  assert.equal((await s.post(envelope('cb0000000001', [['se', 1, 2]]))).status, 204, 'a full read allowance does not refuse batches');
   // A new UTC day starts again.
   s.clock.now = Date.parse('2026-10-21T00:00:00Z');
   assert.equal((await s.admin('/v1/admin/kpis')).status, 200);
@@ -1260,7 +1311,9 @@ test('the guards: above 90,000 writes today the recount answers 429; above 4.2 m
   assert.deepEqual([res.status, res.json()], [429, { error: 'writes', ...until }]);
   assert.equal((await call(s, 'POST', '/v1/admin/settings', { weekStart: 'sun' })).status, 200, 'settings are not an action that writes much');
   assert.equal((await s.admin('/v1/admin/pcs')).status, 200);
-  assert.equal((await s.post(envelope('cb0000000002', [['se', 1, 2]]))).status, 204, 'batches are never refused');
+  const paused = await s.post(envelope('cb0000000002', [['se', 1, 2]]));
+  assert.deepEqual([paused.status, paused.json()], [429, { error: 'writes', ...until }], 'batches pause before the free write limit is used up');
+  assert.equal(await s.count('st_sessions'), 0, 'a paused batch is not stored');
   await usage('writes', 0);
   await usage('reads', 3500001);
   s.clock.now += 5 * 60000;
@@ -1394,11 +1447,11 @@ test('daily_games holds milestone 2\'s frozen days too, on UTC receipt days, nex
     w: 2, l: 2, tier_sum: 6, tier_n: 3, hits: 3, misses: 1 }], ['agg_games', { day: '2026-10-20', a: '8-9', slug: 'road-hopper', sessions: 1, opens: 2,
     engaged_ms: 60000, starts: 1, ends: 1, w: 1 }], ['agg_games', { day: '2026-10-19', a: '', slug: 'maze-dash', sessions: 1, opens: 1 }]]);
   const clock = { now: START };
-  const app = createApp({ dbPath: file, now: () => clock.now, adminToken: TOKEN, dashboardDir: null });
+  const app = createApp({ dbPath: file, now: () => clock.now, adminToken: TOKEN, allowedOrigins: [ORIGIN], dashboardDir: null });
   t.after(() => app.close());
   const { port } = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${port}`;
-  assert.equal((await request(base, 'POST', '/v1/batch', { headers: { 'content-type': 'text/plain' },
+  assert.equal((await request(base, 'POST', '/v1/batch', { headers: { 'content-type': 'text/plain', origin: ORIGIN },
     body: JSON.stringify(envelope('a00000000001', [['go', 1, 'road-hopper', 'featured', 0], ['gx', 20, 'road-hopper', 15000, z6, z4]])) })).status, 204);
   const res = await request(base, 'GET', '/v1/admin/export?file=daily_games&from=2026-10-19&to=2026-10-20', { headers: { authorization: 'Bearer ' + TOKEN } });
   // The overlap day has both: the frozen totals (no heart counts then; the age bands milestone 2 kept added up) and the
