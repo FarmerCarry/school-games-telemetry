@@ -95,7 +95,7 @@ Control never send anything.
 | File | What it does |
 |---|---|
 | `worker.mjs` | Cloudflare entry: `fetch` (the handler on the D1 database `env.DB`, the dashboard from `env.ASSETS`) and `scheduled` (the daily purge, and every 5 minutes the rollups and the sweep of the live rows). |
-| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, request logs (observability) off. |
+| `wrangler.json` | The Worker's settings: D1 binding `DB`, static assets `./dashboard`, two crons (the daily purge, and every 5 minutes the rollups and the sweep of the live rows), `ALLOWED_ORIGINS` and `RETENTION_DAYS`, a `previews` block so a pull-request build can run, request logs (observability) off. |
 | `package.json`, `package-lock.json` | Wrangler 4.149.0 for deploying (a development tool only), the plain-English descriptions the Deploy button shows, `npm start` for Node, `npm test` for the tests and `npm run demo` for the dashboard's sample data. |
 | `.dev.vars.example` | Tells the Deploy button to ask for the `ADMIN_TOKEN` secret (empty on purpose). |
 | `handler.mjs` | The HTTP rules as a Fetch-API handler, shared by both hosts: routes, CORS, the soft rate limit, body limits, admin password, the admin router (methods, parameters, guards), status codes. |

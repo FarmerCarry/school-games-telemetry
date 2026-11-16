@@ -147,8 +147,9 @@ test('wrangler.json binds what the Worker reads and keeps request logs off', () 
   assert.deepEqual(wrangler.vars, { ALLOWED_ORIGINS: ORIGIN, RETENTION_DAYS: '400' });
   assert.deepEqual(wrangler.triggers, { crons: ['23 3 * * *', '*/5 * * * *'] }, 'the daily purge and the 5-minute rollups');
   assert.deepEqual(wrangler.observability, { enabled: false });
-  // A rate-limit binding is not declared: Workers Builds on this account fails the
-  // deploy when wrangler.json has one. The in-memory BATCH_PER_MIN limit is what ships.
+  // Pull-request builds run `wrangler preview`, which refuses a config with no previews block.
+  assert.deepEqual(wrangler.previews, { vars: { ALLOWED_ORIGINS: ORIGIN, RETENTION_DAYS: '400' } });
+  // A rate-limit binding is not declared. The in-memory BATCH_PER_MIN limit is what ships.
   assert.equal(wrangler.ratelimits, undefined);
   assert.ok(Date.parse(wrangler.compatibility_date) <= Date.now() - 14 * DAY_MS, 'a compatibility date at least two weeks old');
   const pkg = JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8'));
