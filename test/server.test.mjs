@@ -712,7 +712,7 @@ test('a batch must name the site, and a game that is not in the catalog is not s
   vm.runInNewContext(fs.readFileSync(new URL('../dashboard/scores.js', import.meta.url), 'utf8'), { window: dashWindow });
   assert.deepEqual(Object.keys(dashWindow.SG_GAME_NAMES), GAME_SLUGS, 'dashboard/names.js SG_GAME_NAMES must match games.mjs');
   assert.deepEqual(Object.keys(dashWindow.SG_GAME_INFO), GAME_SLUGS, 'dashboard/names.js SG_GAME_INFO must match games.mjs');
-  const noScore = new Set(['block-world', 'connect-four', 'critter-mart', 'pizza-clicker', 'tank-splat', 'tic-tac-toe']);
+  const noScore = new Set(['connect-four', 'critter-mart', 'pizza-clicker', 'tank-splat', 'tic-tac-toe']);
   assert.deepEqual(Object.keys(dashWindow.SG_SCORES), GAME_SLUGS.filter(s => !noScore.has(s)), 'dashboard/scores.js must cover all score-reporting games');
 
   const s = await start(t);

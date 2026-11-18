@@ -21,12 +21,6 @@ const dashboard = path.join(repo, 'dashboard');
 const siteRoot = process.env.SG_SITE_DIR ? path.resolve(process.env.SG_SITE_DIR) : path.resolve(repo, '../school-games');
 const SITE = fs.existsSync(path.join(siteRoot, 'js/catalog.js')) ? siteRoot : null;
 const needsSite = { skip: SITE ? false : 'needs the school-games checkout (set SG_SITE_DIR)' };
-// names.js was made (a400e9c) from the games site as it was before school-games 45c2355
-// reworked 19 games (one renamed, some flags and input styles changed). Until it is made again,
-// the test that holds it to the site reports a todo instead of failing; it passes against a
-// site checkout from before that commit (SG_SITE_DIR).
-const SITE_DRIFT = 'names.js predates school-games 45c2355 (Rework 19 games): run node dashboard/make-names.mjs, then drop this todo';
-const needsSiteDrift = { ...needsSite, todo: SITE_DRIFT };
 
 // In this realm (so arrays compare with deepStrictEqual), with `window` as a parameter.
 function loadScripts(...files) {
@@ -239,7 +233,7 @@ test('a game is called the slowest to open only when no shown game is slower', (
   assert.ok(!I.insights(slower, opts('ar')).find(s => s.key.startsWith('load ')).text.includes('الأبطأ'));
 });
 
-test('names.js carries every catalog game\'s names (rebuild: node dashboard/make-names.mjs)', needsSiteDrift, async () => {
+test('names.js carries every catalog game\'s names (rebuild: node dashboard/make-names.mjs)', needsSite, async () => {
   const { namesSource } = await import('../dashboard/make-names.mjs');
   assert.equal(fs.readFileSync(path.join(dashboard, 'names.js'), 'utf8'), namesSource(), 'names.js is out of date: run node dashboard/make-names.mjs');
   const names = loadScripts('names.js').SG_GAME_NAMES;

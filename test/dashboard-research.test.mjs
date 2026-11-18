@@ -32,14 +32,6 @@ const dashboard = path.join(repo, 'dashboard');
 const siteRoot = process.env.SG_SITE_DIR ? path.resolve(process.env.SG_SITE_DIR) : path.resolve(repo, '../school-games');
 const SITE = fs.existsSync(path.join(siteRoot, 'js/catalog.js')) ? siteRoot : null;
 const needsSite = { skip: SITE ? false : 'needs the school-games checkout (set SG_SITE_DIR)' };
-// names.js and scores.js were made (a400e9c) from the games site as it was before
-// school-games 45c2355 reworked 19 games (one renamed, some flags and input styles changed,
-// block-world now passes a score). Until they are made again, the tests that hold them to the
-// site report a todo instead of failing; they pass against a site checkout from before that
-// commit (SG_SITE_DIR).
-const SITE_DRIFT = 'names.js and scores.js predate school-games 45c2355 (Rework 19 games): run node dashboard/make-names.mjs ' +
-  'and update scores.js, then drop this todo';
-const needsSiteDrift = { ...needsSite, todo: SITE_DRIFT };
 function loadScripts(...files) {
   const window = {};
   for (const file of files) {
@@ -273,7 +265,7 @@ test('names.js and scores.js agree with each other: every game named, its catego
   }
 });
 
-test('names.js carries every catalog game\'s categories, players and input, and every category\'s names', needsSiteDrift, () => {
+test('names.js carries every catalog game\'s categories, players and input, and every category\'s names', needsSite, () => {
   const w = loadScripts('names.js');
   assert.deepEqual(Object.keys(w.SG_GAME_INFO).sort(), site.GAMES.map(g => g.slug).sort());
   // What the games' own code reports (docs/RESEARCH_TELEMETRY_SPEC.md §B.5), read here from
@@ -302,7 +294,7 @@ test('names.js carries every catalog game\'s categories, players and input, and 
   }
 });
 
-test('scores.js says what the score means in exactly the games that pass one', needsSiteDrift, () => {
+test('scores.js says what the score means in exactly the games that pass one', needsSite, () => {
   const scores = loadScripts('scores.js').SG_SCORES;
   // The games' own code: a Kit.stats.end(result, score) call with a second argument
   // (a comma at the call's own depth, so a condition in parentheses counts as one argument).

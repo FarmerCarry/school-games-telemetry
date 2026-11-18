@@ -257,8 +257,8 @@
   var NOTES = [
     ['Engaged time counts key presses and clicks within 20-second windows, so watching without touching (waiting for a turn, a long animation) is undercounted.',
       'يعدّ وقت اللعب الفعلي ضغطات المفاتيح والنقرات ضمن نوافذ مدتها 20 ثانية، فيُحسب أقل من حقيقته وقتُ المشاهدة دون لمس (انتظار الدور، أو حركة طويلة على الشاشة).'],
-    ['In the 3 games that adapt their difficulty, the win rate is held near 72% by design. Use the difficulty level and tier there as the measure of skill, not the win rate.',
-      'في الألعاب الثلاث التي تكيّف صعوبتها تُبقى نسبة الفوز قرب 72% عن قصد. فاستخدم فيها مستوى الصعوبة ودرجتها مقياسًا للمهارة، لا نسبة الفوز.'],
+    ['In the games that adapt their difficulty (dda = 1 in games.csv), the win rate is held near a target (72% unless the game sets another) by design. Use the difficulty level and tier there as the measure of skill, not the win rate.',
+      'في الألعاب التي تكيّف صعوبتها (dda = 1 في games.csv) تُبقى نسبة الفوز قرب هدف محدد (72% ما لم تحدد اللعبة غيره) عن قصد. فاستخدم فيها مستوى الصعوبة ودرجتها مقياسًا للمهارة، لا نسبة الفوز.'],
     ['A score means something different in each game (games.csv). Compare scores within one game only.',
       'للنتيجة معنى مختلف في كل لعبة (games.csv)، فلا تقارن النتائج إلا داخل اللعبة الواحدة.'],
     ['Children choose their games, so comparisons between games are confounded by who chooses them.',
@@ -502,7 +502,7 @@
     NOTES.forEach(function (n, k) { out.push((k + 1) + '. ' + n[0], '   ' + n[1]); });
     out.push('', '## The columns', '',
       'Each file\'s columns in their order. *Available for*: ' + [ALL, DDA, SCORE, TUTORIAL, FRAMES].map(function (a) { return '`' + a + '`'; }).join(', ') +
-      ' (the 3 adaptive games are bubble-bop, dino-3d and road-hopper). *Source* is the field the PC sends (`docs/TELEMETRY.md`), or *server*.', '');
+      ' (the adaptive games are those with dda = 1 in games.csv). *Source* is the field the PC sends (`docs/TELEMETRY.md`), or *server*.', '');
     FILES.forEach(function (f) {
       out.push('### `' + f.file + '.csv`: one row per ' + f.one[0], '',
         '| Column | Type | Unit | Values | Meaning | المعنى | Source | Available for |', '|---|---|---|---|---|---|---|---|');

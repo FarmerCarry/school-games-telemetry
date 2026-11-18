@@ -1,14 +1,15 @@
 // What the score means in each game that passes one to Kit.stats.end(result, score):
 // [Arabic, English], each completing «النتيجة هنا هي …» / "The score here is …".
 // Written by hand from the games' own code; a score is only comparable within one game.
-// All 46 single-player score-reporting games are listed (all 52 except block-world,
-// critter-mart, pizza-clicker, tank-splat, connect-four and tic-tac-toe).
+// All 47 single-player score-reporting games are listed (all 52 except critter-mart,
+// pizza-clicker, tank-splat, connect-four and tic-tac-toe).
 window.SG_SCORES = {
   'air-hockey': ['أهداف الطفل في المباراة', 'the child’s goals in the match'],
   'balloon-blast': ['نجوم مرحلة المغامرة (من 0 إلى 3)، وفي المعركة جولات الفوز (من 0 إلى 3)', 'the stars of an adventure stage (0 to 3); in battle mode, the rounds won (0 to 3)'],
   'beat-dash': ['المسافة التي قطعها الطفل من المرحلة بالنسبة المئوية (100 عند إنهائها)', 'how far through the level the child got, in % (100 when it is finished)'],
   'blob-battle': ['أكبر حجم بلغه الهلام في الجولة', 'the biggest size the blob reached in the round'],
   'block-burst': ['نقاط الجولة', 'the points of the run'],
+  'block-world': ['نجوم العالم المحفوظ: عدد المهمات المنجزة فيه', 'the stars of the saved world: the quests finished in it'],
   'bubble-bop': ['نجوم المرحلة المنتهية (من 1 إلى 3)، وفي جولات الحفلة النقاط', 'the stars of a finished level (1 to 3); in the party rounds, the points'],
   'cake-guards': ['نجوم المرحلة الرابحة (من 1 إلى 3)، وإلا فعدد الموجات التي صُدّت', 'the stars of a won level (1 to 3); otherwise the waves held back'],
   'candy-rope': ['النجوم التي جُمعت في المرحلة المنتهية (من 0 إلى 3)', 'the stars collected in a finished level (0 to 3)'],
