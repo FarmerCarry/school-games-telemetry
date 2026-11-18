@@ -1,7 +1,7 @@
 /*
  * Insights for the dashboard: pure functions over the KPI JSON of
  * GET /v1/admin/kpis (the repository README.md). No DOM, no clock, no network: the same
- * input always gives the same output, so tools/tests/dashboard-insights.test.mjs
+ * input always gives the same output, so test/dashboard-insights.test.mjs
  * can check every rule. The page uses window.SGInsights; Node loads this file as
  * a plain script (module.exports when CommonJS is around).
  *

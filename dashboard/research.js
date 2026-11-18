@@ -4,7 +4,7 @@
  * number is about play, never about who played.
  * No DOM, no clock, no network, like insights.js: the page uses window.SGResearch,
  * Node loads this file as a plain script (module.exports when CommonJS is around),
- * and tools/tests/dashboard-research.test.mjs checks every rule.
+ * and test/dashboard-research.test.mjs checks every rule.
  *
  * Conventions:
  *   days        'YYYY-MM-DD' on the school's clock (the server's), compared as text.
