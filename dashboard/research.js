@@ -28,7 +28,7 @@
 
   const SMALL = Object.freeze({ tries: 20 });
   const DAY_MS = 86400000;
-  // Bucket lower bounds of the r_stat metrics (server/README.md).
+  // Bucket lower bounds of the r_stat metrics (the repository README.md).
   const BUCKETS = Object.freeze({
     sesslen: [0, 1, 2, 5, 10, 15, 20, 30, 45, 60],          // engaged minutes per session
     games: [1, 2, 3, 4, 5, 6, 8],                            // games opened per session (6 = 6-7, 8 = 8+)

@@ -1,5 +1,5 @@
-// The Cloudflare Worker entry (server/worker.mjs) driven with real Fetch-API Requests,
-// with env.DB a D1-style database over node:sqlite (server/sqlite-d1.mjs) and env.ASSETS a
+// The Cloudflare Worker entry (worker.mjs) driven with real Fetch-API Requests,
+// with env.DB a D1-style database over node:sqlite (sqlite-d1.mjs) and env.ASSETS a
 // stub: D1's free-plan limits per invocation (the request that upgrades the database does
 // only that and is answered 503), the batch interval, the usage meter, the 5-minute cron's
 // rollups, the KPI and research parts kept in D1 and the CPU the admin answers take outside

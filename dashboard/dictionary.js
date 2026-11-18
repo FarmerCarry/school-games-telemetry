@@ -226,8 +226,8 @@
       c('reports_hits', 'flag', '', '0, 1', '1 when the game counts hits and misses (accuracy).', '1 إذا كانت اللعبة تعدّ الإصابات والأخطاء (الدقة).', 'games/ (Kit.track)'),
       c('reports_reaction', 'flag', '', '0, 1', '1 when the game measures reaction times.', '1 إذا كانت اللعبة تقيس أزمنة الاستجابة.', 'games/ (Kit.track)'),
       c('reports_score', 'flag', '', '0, 1', '1 when the game passes a score.', '1 إذا كانت اللعبة تمرّر نتيجة.', 'Kit.stats.end'),
-      c('score_meaning_en', 'text', '', '', 'What the score means in this game.', 'معنى النتيجة في هذه اللعبة، بالإنجليزية.', 'server/dashboard/scores.js'),
-      c('score_meaning_ar', 'text', '', '', 'What the score means in this game, in Arabic.', 'معنى النتيجة في هذه اللعبة.', 'server/dashboard/scores.js'),
+      c('score_meaning_en', 'text', '', '', 'What the score means in this game.', 'معنى النتيجة في هذه اللعبة، بالإنجليزية.', 'dashboard/scores.js'),
+      c('score_meaning_ar', 'text', '', '', 'What the score means in this game, in Arabic.', 'معنى النتيجة في هذه اللعبة.', 'dashboard/scores.js'),
       c('tutorial', 'flag', '', '0, 1', '1 when the game shows a tutorial the first time.', '1 إذا كانت اللعبة تعرض درسًا تعليميًا في المرة الأولى.', 'games/ (Kit.stats.tutorial)')
     ] },
     { file: 'dictionary', from: 'browser', one: ['column of a file', 'عمود في ملف'], columns: [

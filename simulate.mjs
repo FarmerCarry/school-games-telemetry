@@ -4,12 +4,12 @@
  * in Asia/Riyadh, sending wire version 3 at the portal sink's real cadence
  * (docs/RESEARCH_TELEMETRY_SPEC.md, §F.7).
  *
- *   node server/simulate.mjs [--url http://127.0.0.1:8787] [--sessions 300] [--seed 1]
+ *   node simulate.mjs [--url http://127.0.0.1:8787] [--sessions 300] [--seed 1]
  *       [--origin https://farmercarry.github.io]
  *       posts that many sessions of children playing in the last half hour to a running
  *       server (each batch's w is taken when it is sent). The server must list --origin
  *       in ALLOWED_ORIGINS; the live site's origin is the default.
- *   node server/simulate.mjs --db server/data/dev.db [--days 28] [--sessions 120] [--seed 1]
+ *   node simulate.mjs --db data/dev.db [--days 28] [--sessions 120] [--seed 1]
  *       writes the last --days days straight into a database file (stop the server first
  *       or use another file), --sessions per school day, and runs the store's own 5-minute
  *       rollups (rollupStep) after each day, as the cron would.
@@ -30,7 +30,7 @@
  * 60 seconds after the first waiting event (20 for the old portal), at every game close and
  * at the session's end; a few PCs are offline for a while and deliver late. The same seed
  * always gives the same batches, so a repeated run adds nothing. Every batch is checked
- * with server/schema.mjs.
+ * with schema.mjs.
  *
  * Tests import history() (the v3 school's batches) and historyV2() (milestone 2's
  * generator: v2 batches only, one per game close, kept for the comparisons with
@@ -54,7 +54,7 @@ function parseArgs(args) {
     origin: 'https://farmercarry.github.io' };
   for (let i = 0; i < args.length; i++) {
     const name = args[i].replace(/^--/, ''), value = args[++i];
-    if (!Object.hasOwn(options, name) || value === undefined) throw new Error('usage: see the header of server/simulate.mjs');
+    if (!Object.hasOwn(options, name) || value === undefined) throw new Error('usage: see the header of simulate.mjs');
     options[name] = ['sessions', 'seed', 'days'].includes(name) ? Number(value) : value;
     if (typeof options[name] === 'number' && !(Number.isInteger(options[name]) && options[name] >= 0)) throw new Error(`--${name} must be a whole number`);
   }

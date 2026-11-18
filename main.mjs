@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Starts the ingest server on Node from environment variables (see server/README.md):
+// Starts the ingest server on Node from environment variables (see README.md):
 //   PORT=8787 DB_PATH=/data/telemetry.db ALLOWED_ORIGINS=https://name.github.io \
-//   ADMIN_TOKEN=... node server/main.mjs
-// The dashboard is served at / from server/dashboard/.
+//   ADMIN_TOKEN=... node main.mjs
+// The dashboard is served at / from dashboard/.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hideSqliteWarning } from './warnings.mjs';

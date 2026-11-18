@@ -1,10 +1,10 @@
 # The Node host needs only Node 22.13 or newer: no npm install, no runtime dependencies
 # (wrangler in package.json is only for the Cloudflare host).
-#   docker build -t school-games-telemetry server/
+#   docker build -t school-games-telemetry .
 #   docker run -d --name sg-telemetry --restart unless-stopped -p 127.0.0.1:8787:8787 \
 #     -v sg-telemetry:/data -e ALLOWED_ORIGINS=https://name.github.io -e TRUST_PROXY=1 \
 #     -e ADMIN_TOKEN="$(cat admin-token)" school-games-telemetry
-# Put a TLS reverse proxy in front of it (server/README.md, "Self-hosting on Node").
+# Put a TLS reverse proxy in front of it (README.md, "Self-hosting on Node").
 FROM node:22-alpine
 WORKDIR /app
 COPY *.mjs ./

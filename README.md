@@ -1,9 +1,9 @@
 # Play statistics server and insights dashboard
 
-This folder is a small service that receives play statistics **without names** from the
-games portal (the portal's telemetry sink, `js/telemetry.js`; see
-[`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md), "Telemetry sink", "Milestone 2" and
-"Milestone 2.5"), keeps them row by row, **anonymously**, and shows them on the insights
+This repository is a small service that receives play statistics **without names** from the
+games portal (the portal's telemetry sink, `js/telemetry.js` in
+[FarmerCarry/school-games](https://github.com/FarmerCarry/school-games); see that repository's
+[`docs/TELEMETRY.md`](https://github.com/FarmerCarry/school-games/blob/main/docs/TELEMETRY.md)), keeps them row by row, **anonymously**, and shows them on the insights
 dashboard at its own address. The site has no student accounts, player profiles or age
 groups: the server keeps play sessions, game visits and rounds under a random code per
 session and per PC, and nothing that tells children apart.
@@ -200,15 +200,15 @@ runtime dependencies.
 
 ```sh
 export ADMIN_TOKEN=$(openssl rand -hex 24)
-node server/main.mjs &
+node main.mjs &
 # telemetry: listening on port 8787; 0 allowed origin(s), admin on, ...
 curl -s localhost:8787/v1/health                    # {"ok":true,"accepts":[2,3],"schema":5}
-node server/simulate.mjs --sessions 200             # synthetic sessions (today)
+node simulate.mjs --sessions 200                    # synthetic sessions (today)
 curl -s -H "Authorization: Bearer $ADMIN_TOKEN" localhost:8787/v1/admin/kpis
 # the dashboard: http://localhost:8787/
 ```
 
-The default database is `server/data/telemetry.db` (ignored by Git).
+The default database is `data/telemetry.db` (ignored by Git).
 
 ### Configuration
 
@@ -218,7 +218,7 @@ All settings are environment variables.
 |---|---|---|
 | `PORT` | `8787` | TCP port. `0` picks a free one (printed at start). |
 | `HOST` | all interfaces | Bind address. Use `127.0.0.1` behind a reverse proxy on the same machine. |
-| `DB_PATH` | `server/data/telemetry.db` | SQLite file (created with its folder). Also writes `-wal` and `-shm` files next to it. |
+| `DB_PATH` | `data/telemetry.db` | SQLite file (created with its folder). Also writes `-wal` and `-shm` files next to it. |
 | `ALLOWED_ORIGINS` | none | Comma-separated origins of the portal, e.g. `https://name.github.io` (an origin has no path and no trailing slash, even when the site lives at `/school-games/`). `POST /v1/batch` answers `403` unless the `Origin` header is exactly one of these, including when the header is missing. The games site is a browser, and a browser sends `Origin` on this request. The literal `null` (pages from `file:` or sandboxed frames) is accepted only if listed; the portal never sends from `file:`. |
 | `ADMIN_TOKEN` | none | The dashboard password: the bearer token for `/v1/admin/*`, at least 16 printable ASCII characters without spaces (use `openssl rand -hex 24`). Unset: the admin endpoints answer `404`. |
 | `RETENTION_DAYS` | `400` | Days of play facts to keep (1 to 36,500); the daily rollups are kept at least 800 days. The owner's choice on the dashboard (`keepDays`) wins. |
@@ -244,7 +244,7 @@ the proxy **not to log client IP addresses**, and keep request bodies out of its
 **Docker:**
 
 ```sh
-docker build -t school-games-telemetry server/
+docker build -t school-games-telemetry .
 docker run -d --name sg-telemetry --restart unless-stopped \
   -p 127.0.0.1:8787:8787 -v sg-telemetry:/data \
   -e ALLOWED_ORIGINS=https://name.github.io -e TRUST_PROXY=1 \
@@ -255,7 +255,7 @@ docker run -d --name sg-telemetry --restart unless-stopped \
 The image runs as the unprivileged `node` user, stores the database in the `/data`
 volume, serves the dashboard and has a health check on `/v1/health`.
 
-**A small VM with systemd:** copy the `server/` folder to `/opt/sg-telemetry` and
+**A small VM with systemd:** copy this repository to `/opt/sg-telemetry` and
 install Node 22.13 or newer (for example from nodejs.org or NodeSource). Then
 `/etc/systemd/system/sg-telemetry.service`:
 
@@ -315,7 +315,7 @@ server {
 }
 ```
 
-**Any other Node host** that runs `node main.mjs` (or `npm start` in `server/`) with Node
+**Any other Node host** that runs `node main.mjs` (or `npm start`) with Node
 22.13+, gives it a persistent disk for `DB_PATH` and terminates TLS works (one instance:
 SQLite is a single file). Check that the platform's request logs can be configured
 without client IPs, or turned off.
@@ -1102,8 +1102,7 @@ writes kept parts to `kpi_cache` inside the same statements that read them.
   per-student rollups, made here and made by the schema 4 server from Git, leaves none of
   them and keeps every session, visit, round and rollup, inside D1's limits, and twice
   changes nothing more). One file: `node --test test/no-accounts.test.mjs`.
-* The Workers runtime on your machine (no Cloudflare account needed): `npm install` in
-  `server/`, put `ADMIN_TOKEN=...` in `server/.dev.vars` (ignored by Git), then
+* The Workers runtime on your machine (no Cloudflare account needed): `npm install`, put `ADMIN_TOKEN=...` in `.dev.vars` (ignored by Git), then
   `npx wrangler dev` (local D1 in `.wrangler/`). Add `--test-scheduled` and open
   `/__scheduled` to run the daily purge, or `/__scheduled?cron=*/5+*+*+*+*` for the
   rollups and the sweep of the live rows. `npx wrangler deploy --dry-run --outdir /tmp/out`

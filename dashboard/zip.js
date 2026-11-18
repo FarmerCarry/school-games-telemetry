@@ -1,8 +1,8 @@
 /*
  * ZIP files for the research download (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6), built from
  * Blobs so that no file is ever held as one giant string. crc32() and the header layout
- * are those of js/teacher.js zip(), copied because server/ stays self-contained; here the
- * CRC streams over a Blob's chunks, and each entry is deflated with
+ * are those of the site's former js/teacher.js zip(), copied so the server stays
+ * self-contained; here the CRC streams over a Blob's chunks, and each entry is deflated with
  * CompressionStream('deflate-raw') where the browser has it (stored as it is otherwise, or
  * when deflating does not make it smaller). An entry or archive past 4 GB (ZIP64) is
  * refused. window.SGZip in the page; Node loads it as a plain script (module.exports),

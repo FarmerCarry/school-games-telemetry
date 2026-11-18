@@ -1,4 +1,4 @@
-// The school's clock (server/clock.mjs): offsets, local days and the bounds of local days
+// The school's clock (clock.mjs): offsets, local days and the bounds of local days
 // in IANA zones, including days of 23 and 25 hours and midnights that do not exist,
 // checked against Intl read directly (no cache).
 import assert from 'node:assert/strict';
