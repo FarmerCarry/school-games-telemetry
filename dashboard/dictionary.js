@@ -1,5 +1,5 @@
 /*
- * The research files' data dictionary (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6): every file
+ * The research files' data dictionary (the M2.5 spec, §F.6): every file
  * of the research download with its columns in their pinned order, each as [name, type,
  * unit, values, meaning_en, meaning_ar, source, available_for]. The server's files
  * (sessions ... pcs) list exactly the COLUMNS of export.mjs, which
@@ -252,7 +252,7 @@
   // The header line of a file (its columns, comma-separated).
   function header(file) { return columns(file).join(','); }
 
-  // The validity notes (§E): [English, Arabic]. They go in README.txt, docs/RESEARCH_DATA.md
+  // The validity notes (§E): [English, Arabic]. They go in README.txt, the researchers' guide (--md)
   // and the dashboard's tooltips.
   var NOTES = [
     ['Engaged time counts key presses and clicks within 20-second windows, so watching without touching (waiting for a turn, a long animation) is undercounted.',
@@ -472,7 +472,7 @@
     return out.join('\n') + '\n';
   }
 
-  // ---- docs/RESEARCH_DATA.md ---------------------------------------------------------------------
+  // ---- the researchers' guide (--md) ----------------------------------------------------------------
   var mdCell = function (s) { return String(s).replace(/\|/g, '\\|'); };
   function markdown() {
     var out = ['# Research data: the dictionary and how to read it', '',
@@ -480,7 +480,7 @@
       'The dashboard\'s **Data & settings** tab downloads the school\'s play as research files: `school-games-data_<from>_<to>.zip`, one CSV file per',
       'kind of row plus `games.csv`, `dictionary.csv` (this page as a table), `README.txt` (in English and Arabic), `labels.sps` (SPSS) and `load.R` (R).',
       'The server writes the rows (`GET /v1/admin/export`, `README.md`); the browser adds the headers, the byte-order mark and the other files.',
-      'The design is in `docs/RESEARCH_TELEMETRY_SPEC.md` (§E, §F.6).', '',
+      'The design is in [the M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md) (§E, §F.6).', '',
       '## The files', '',
       '| File | One row per | Written by |', '|---|---|---|'];
     FILES.forEach(function (f) { out.push('| `' + f.file + '.csv` | ' + f.one[0] + ' | ' + (f.from === 'server' ? 'the server' : 'the browser') + ' |'); });

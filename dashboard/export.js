@@ -1,5 +1,5 @@
 /*
- * The research download (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6): every page of each of the
+ * The research download (the M2.5 spec, §F.6): every page of each of the
  * server's research files (GET /v1/admin/export, at most 2,500 lines a page, without a
  * header), each file given its header from dictionary.js and a byte-order mark, plus
  * games.csv, dictionary.csv, README.txt, labels.sps and load.R, in one ZIP

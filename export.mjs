@@ -1,4 +1,4 @@
-// The research export (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6): GET /v1/admin/export?file=
+// The research export (the M2.5 spec, §F.6): GET /v1/admin/export?file=
 // &from&to[&after] answers one page of a CSV file, at most 2,500 lines without a header (the
 // dashboard writes the header from its data dictionary, whose columns must equal COLUMNS),
 // with the cursor of the next page. Every line is built in SQL; JavaScript only joins them.

@@ -1,7 +1,7 @@
 // The store's facts (store.mjs, schema 5) on the Node driver: v3 batches written
 // idempotently, v2 batches numbered by the server, the session's clock, the school's zone,
 // late data, the usage meter, the query plans of every write and admin read, the export's
-// pinned columns and values, and the simulated school (docs/RESEARCH_TELEMETRY_SPEC.md, §C,
+// pinned columns and values, and the simulated school (the M2.5 spec, §C,
 // §D, §F.6 and §F.7). The batches here are mostly an older portal's (with a student code,
 // an age band and a profile's fields), which every test stores as anonymous sessions.
 import assert from 'node:assert/strict';

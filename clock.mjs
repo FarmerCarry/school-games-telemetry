@@ -1,5 +1,5 @@
 // The school's clock: UTC offsets, local days and the bounds of a local day in an IANA
-// zone, from Intl alone (docs/RESEARCH_TELEMETRY_SPEC.md, "Time"). Pure: it reads no
+// zone, from Intl alone (the M2.5 spec, "Time"). Pure: it reads no
 // clock and stores nothing but caches. SQL never applies zone rules row by row: the store
 // computes bounds and offsets here and binds them, as
 // start_s + t + (CASE WHEN start_s + t >= ?ch THEN ?o2 ELSE ?o1 END) * 60.

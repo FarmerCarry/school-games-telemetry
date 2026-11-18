@@ -1,5 +1,5 @@
 /*
- * ZIP files for the research download (docs/RESEARCH_TELEMETRY_SPEC.md, §F.6), built from
+ * ZIP files for the research download (the M2.5 spec, §F.6), built from
  * Blobs so that no file is ever held as one giant string. crc32() and the header layout
  * are those of the site's former js/teacher.js zip(), copied so the server stays
  * self-contained; here the CRC streams over a Blob's chunks, and each entry is deflated with

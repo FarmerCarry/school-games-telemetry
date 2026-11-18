@@ -3,7 +3,7 @@
 // stub: D1's free-plan limits per invocation (the request that upgrades the database does
 // only that and is answered 503), the batch interval, the usage meter, the 5-minute cron's
 // rollups, the KPI and research parts kept in D1 and the CPU the admin answers take outside
-// SQLite. (The upgrade from schema 4, from this repository's own history, is test/upgrade.test.mjs.)
+// SQLite. (The upgrade from schema 4, from this repository's own history, is in test/no-accounts.test.mjs.)
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';

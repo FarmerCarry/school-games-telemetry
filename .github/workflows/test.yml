@@ -1,0 +1,43 @@
+# Runs the server and dashboard tests on every push and pull request, with the games site
+# checked out next to this repository (../school-games), so the tests that hold games.mjs,
+# dashboard/names.js and dashboard/scores.js to the site's catalog and game code run too.
+# Deploys are not made here: Cloudflare Workers Builds deploys main on its own.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  # Weekly, so a game added or reworked on the site shows up here as a failing sync test.
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: school-games-telemetry
+      - uses: actions/checkout@v5
+        with:
+          repository: FarmerCarry/school-games
+          path: school-games
+      - uses: actions/setup-node@v5
+        with:
+          # The Docker image's line; node:sqlite needs 22.13 or newer. No npm install: the
+          # tests use Node alone (wrangler is only for deploying).
+          node-version: 22
+      - name: Server and dashboard tests
+        working-directory: school-games-telemetry
+        run: npm test

@@ -1,6 +1,6 @@
 // The daily tables of the ingest server: milestone 2's frozen aggregates (agg_*) and the
 // rollups of the facts (r_*) that replace them, by the school's local day
-// (docs/RESEARCH_TELEMETRY_SPEC.md, "Rollup semantics"). For each rollup, one SELECT ...
+// (the M2.5 spec, "Rollup semantics"). For each rollup, one SELECT ...
 // GROUP BY over the sessions that started in a span of local days is its only definition.
 // It is used three ways: as INSERT INTO r_x SELECT ... for a day's first roll (and for a
 // full re-roll, after DELETE ... WHERE day = ?), as an upsert that writes only the rows

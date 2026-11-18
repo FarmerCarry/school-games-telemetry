@@ -1,5 +1,5 @@
-// Validation of the telemetry envelope and events: wire version 2 (docs/ARCHITECTURE.md,
-// "Telemetry sink") and version 3 (docs/RESEARCH_TELEMETRY_SPEC.md, "Wire format v3").
+// Validation of the telemetry envelope and events: wire version 2 (the site's M2 architecture,
+// "Telemetry sink") and version 3 (the M2.5 spec, "Wire format v3").
 // Everything not described there is dropped here, so nothing else can ever reach the
 // database: unknown envelope fields are ignored, unknown event kinds, malformed events
 // and games that are not in games.mjs are dropped, and measured numbers are rounded and clamped. The core of the envelope
@@ -17,7 +17,7 @@ import { zoneName } from './clock.mjs';
 import { GAME_SLUGS } from './games.mjs';
 
 export const MODES = ['web', 'app'];
-// The v1 launch sources (docs/PLAY_STATS.md, "Launch source") plus the starter title.
+// The v1 launch sources (the M2 play-stats doc, "Launch source") plus the starter title.
 export const SOURCES = ['featured', 'catalog', 'recent', 'favorites', 'category', 'quick', 'search',
   'related', 'surprise', 'reload', 'history', 'direct', 'starter'];
 export const CODES = ['w', 'l', 'd', 'e', 'q'];

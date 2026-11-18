@@ -4,7 +4,7 @@
 // every session anonymous (a = '', no student counts) whatever an older portal sent; a diff
 // re-roll after late data leaves the tables as a fresh roll would; a full re-roll rebuilds them exactly;
 // the KPIs read the same numbers from the facts before the roll; and the rows a roll reads
-// stay small on a busy day (docs/RESEARCH_TELEMETRY_SPEC.md, §D.2, §D.3, §D.7, §H.5).
+// stay small on a busy day (the M2.5 spec, §D.2, §D.3, §D.7, §H.5).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 

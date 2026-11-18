@@ -442,7 +442,7 @@ SELECT day, SUM(sessions) FROM agg_days GROUP BY day ORDER BY day DESC LIMIT 14;
 
 Divide each school day's batches by its sessions and record the ratio below. If it is
 above 16, the portal's default batch timer for wire version 3 goes from 60 to 90 seconds
-(`docs/RESEARCH_TELEMETRY_SPEC.md`, §B.6), before that version is published.
+([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), §B.6), before that version is published.
 
 | Measured on | School days | Batches per session (portal on wire version 2, 20 s timer) |
 |---|---|---|
@@ -477,8 +477,9 @@ The body is the telemetry envelope as JSON, sent as `text/plain` (a CORS "simple
 request" without a preflight) or `application/json`. Wire version 2 (`"v": 2`, the
 portal until milestone 2.5) and version 3 (`"v": 3`) are both accepted, version 2
 indefinitely (queues of up to 7 days, cached portals). See
-`fixtures/sample-batch.json`, `fixtures/sample-batch-v3.json`, `docs/ARCHITECTURE.md`
-and `docs/RESEARCH_TELEMETRY_SPEC.md` ("Wire format v3"). A batch from an older portal
+`fixtures/sample-batch.json`, `fixtures/sample-batch-v3.json`, the site's
+[`ARCHITECTURE.md` as of milestone 2](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/ARCHITECTURE.md) ("Telemetry sink")
+and the [M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md) ("Wire format v3"). A batch from an older portal
 with accounts (`fixtures/sample-batch-v3-accounts.json`) is accepted too; its account
 fields are read past (below).
 
@@ -806,7 +807,7 @@ last night); `daily` also today.
 The research metrics of `r_stat`, summed over the rolled days of the period (up to
 `range.rolledThrough`), for every game or the game `slug`. `metrics` is a comma-separated
 subset of `hour, rhour, sesslen, games, visitlen, flow, persist, fatigue, qrun, tier,
-tutorial` (`docs/RESEARCH_TELEMETRY_SPEC.md`, §D.2, gives each one's keys `k1` and `k2`;
+tutorial` ([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), §D.2, gives each one's keys `k1` and `k2`;
 `sesslen`'s `k2` is the wire version, `3` or `2`); the answer lists them in that order.
 Schema 4's per-student metrics (`daymin`, `attempt`, `tenure`) are gone: asking for one
 is `400 {"error": "metrics"}`. Rows are sorted by their keys. `columns` holds the keys and
@@ -986,7 +987,7 @@ Answers `{"pending": <days waiting>}`.
 
 ### Storage
 
-Schema 5 (`docs/RESEARCH_TELEMETRY_SPEC.md`, "Storage on D1", has the exact columns,
+Schema 5 ([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), "Storage on D1", has the exact columns,
 without its per-student tables):
 
 | Tables | What they hold |
@@ -1039,7 +1040,7 @@ The rollups are kept 800 days (about 480 school days), so the database levels of
 about 145 MB, far under the storage guard (425 MB). A database upgraded from schema 4
 keeps the size it had (SQLite reuses the space the upgrade frees before it grows). Read
 costs cannot be measured on Node (`node:sqlite` reports the rows returned, not the rows
-SQLite read): the spec (`docs/RESEARCH_TELEMETRY_SPEC.md`, "Budget math") estimates 0.6
+SQLite read): the spec ([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), "Budget math") estimates 0.6
 to 1.2 million rows read on a typical day with the dashboard open, and 2.1 to 2.6
 million more for a school year's export.
 
@@ -1087,6 +1088,20 @@ rolled part is kept and whose open day is made again, about 4.4 ms. The answers 
 as JSON text by SQL and sent as they are: the Worker parses none of a kept part, and
 writes kept parts to `kpi_cache` inside the same statements that read them.
 
+## Design history
+
+The code comments cite three design documents by name. They lived in the games site's
+repository until the server moved here, and are kept there in Git history:
+
+- **the M2.5 spec**: [`RESEARCH_TELEMETRY_SPEC.md`](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), the binding spec for wire
+  version 3, the school clock, schema 4, the metric catalogue, the dashboard and the research
+  export. Its parts on student codes, profiles, age bands and per-student tables were
+  superseded by schema 5 (no accounts or ages, above); the rest still describes this server.
+- **the M2 play-stats doc**: [`PLAY_STATS.md`](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/PLAY_STATS.md) (wire version 2, launch sources).
+- **the site's M2 architecture**: [`ARCHITECTURE.md`](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/ARCHITECTURE.md), "Telemetry sink".
+
+The researchers' guide is generated, not kept as a file: `node dashboard/dictionary.js --md`.
+
 ## Development
 
 * Tests: `npm test` (`node --test --test-concurrency=1 test/*.test.mjs`): `clock` (the
@@ -1101,7 +1116,12 @@ writes kept parts to `kpi_cache` inside the same statements that read them.
   column; the upgrade of a schema 4 database seeded with students, links, age bands and
   per-student rollups, made here and made by the schema 4 server from Git, leaves none of
   them and keeps every session, visit, round and rollup, inside D1's limits, and twice
-  changes nothing more). One file: `node --test test/no-accounts.test.mjs`.
+  changes nothing more), `dashboard-insights` and `dashboard-research` (the dashboard's insight
+  rules, research maths, data dictionary and download, and that `games.mjs`, `names.js` and
+  `scores.js` match the games site; those last checks read a `school-games` checkout next to
+  this one, or `SG_SITE_DIR`, and skip without it). One file:
+  `node --test test/no-accounts.test.mjs`. GitHub Actions (`.github/workflows/test.yml`) runs
+  `npm test` with the site checked out on every push, pull request and weekly.
 * The Workers runtime on your machine (no Cloudflare account needed): `npm install`, put `ADMIN_TOKEN=...` in `.dev.vars` (ignored by Git), then
   `npx wrangler dev` (local D1 in `.wrangler/`). Add `--test-scheduled` and open
   `/__scheduled` to run the daily purge, or `/__scheduled?cron=*/5+*+*+*+*` for the

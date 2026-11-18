@@ -2,7 +2,7 @@
 /*
  * Deterministic synthetic telemetry for dashboard development, demos and tests: one school
  * in Asia/Riyadh, sending wire version 3 at the portal sink's real cadence
- * (docs/RESEARCH_TELEMETRY_SPEC.md, §F.7).
+ * (the M2.5 spec, §F.7).
  *
  *   node simulate.mjs [--url http://127.0.0.1:8787] [--sessions 300] [--seed 1]
  *       [--origin https://farmercarry.github.io]

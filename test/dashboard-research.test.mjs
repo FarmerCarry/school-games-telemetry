@@ -268,7 +268,7 @@ test('names.js and scores.js agree with each other: every game named, its catego
 test('names.js carries every catalog game\'s categories, players and input, and every category\'s names', needsSite, () => {
   const w = loadScripts('names.js');
   assert.deepEqual(Object.keys(w.SG_GAME_INFO).sort(), site.GAMES.map(g => g.slug).sort());
-  // What the games' own code reports (docs/RESEARCH_TELEMETRY_SPEC.md §B.5), read here from
+  // What the games' own code reports (the M2.5 spec §B.5), read here from
   // games/<slug>/: Kit.dda adapts the difficulty, Kit.track counts hits and reaction times,
   // Kit.stats.tutorial shows a tutorial.
   const uses = (slug, pattern) => {

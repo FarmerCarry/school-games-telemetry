@@ -1,4 +1,4 @@
-// The admin API's research reads and the owner's action (docs/RESEARCH_TELEMETRY_SPEC.md,
+// The admin API's research reads and the owner's action (the M2.5 spec,
 // §F.4): one game's page, the r_stat metrics and the PCs; and recounting every day. Each
 // read takes the rolled days from the rollups and the days not rolled yet from the facts,
 // through the rollups' own SELECT, as the KPIs do; the part of the rolled days is kept per

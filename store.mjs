@@ -1,5 +1,5 @@
 // Storage for the ingest server over a D1-style async SQL driver (Cloudflare D1 on
-// Workers, sqlite-d1.mjs on Node), schema 5 (docs/RESEARCH_TELEMETRY_SPEC.md, "Storage on
+// Workers, sqlite-d1.mjs on Node), schema 5 (the M2.5 spec, "Storage on
 // D1", without the per-student tables). An accepted batch is stored as row-level facts:
 // its play session (st_sessions), game visits (st_visits), rounds (st_rounds) and marks
 // (st_marks), and the row of its PC. Every session is anonymous: there is no student, no
@@ -72,7 +72,7 @@ const BATCH_EVERY = [[60000, 60], [80000, 180], [Infinity, 300]];
 // Every value the rollups' a can hold, as an SQL list (r_stat rows are found by day and a).
 const A_LIST = `(${A_KEYS.map(a => `'${a}'`).join(', ')})`;
 const DEVICES = [['cores', 'cores'], ['mem', 'memory'], ['screen', 'screen']];
-// A local two-player round (the same rule as TWO_PLAYER in js/teacher.js).
+// A local two-player round (the same rule as TWO_PLAYER in the site's former js/teacher.js).
 const DUO = /(?:^|:)(?:duo|local|pvp)$/;
 // A diff re-roll looks this many local days back: late data reaches no older day (a
 // session is at most 7 days long and a PC keeps a batch at most 7 days).

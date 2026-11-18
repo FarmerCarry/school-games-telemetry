@@ -558,7 +558,7 @@ test('unknown and malformed events are dropped while valid ones are kept; measur
   assert.equal(await s.count('batches'), 2);
 });
 
-// Every column schema 5 has (docs/RESEARCH_TELEMETRY_SPEC.md §D.2, without the per-student
+// Every column schema 5 has (the M2.5 spec §D.2, without the per-student
 // tables), written out here so that a column added anywhere fails this test until it is
 // reviewed. Codes of sessions and PCs (s, p), the zone name (z) and times counted from a
 // session's start are the only identifiers. The columns schema 4 kept a student's code,
