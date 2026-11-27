@@ -6,20 +6,23 @@
 // When a game is added to the site, add its slug here too, in alphabetical order,
 // and run `node dashboard/make-names.mjs` so `dashboard/names.js` stays in sync.
 // Until you do, that game's events are ignored and the rest of the batch is kept.
-// The list is all 53 games in js/catalog.js.
+// The list is all 58 games in js/catalog.js.
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const GAME_SLUGS = [
   'air-hockey',
+  'ball-storm',
   'balloon-blast',
   'beat-dash',
   'blob-battle',
   'block-burst',
   'block-world',
+  'bonk-garden',
   'bubble-bop',
   'cake-guards',
   'candy-rope',
   'chaos-island',
+  'cloud-hop',
   'connect-four',
   'critter-mart',
   'desk-karts',
@@ -27,6 +30,7 @@ export const GAME_SLUGS = [
   'drift-king',
   'egg-rush',
   'fire-and-ice',
+  'frog-pinball',
   'hoop-heads',
   'juicy-drop',
   'key-runner',
@@ -45,6 +49,7 @@ export const GAME_SLUGS = [
   'recess-kitchen',
   'road-hopper',
   'robo-swarm',
+  'sandwich-tower',
   'seek-zoom',
   'shortcut-factory',
   'skybound-golf',

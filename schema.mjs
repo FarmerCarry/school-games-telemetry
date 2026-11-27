@@ -38,7 +38,6 @@ export const MAX_W = 691200;
 // Upper bounds for measured numbers; larger values are clamped, not dropped.
 export const LIMITS = {
   t: 7 * 86400,            // seconds since the session started
-  level: 999,
   loadMs: 120000,
   replay: 9999,
   roundMs: 3 * 3600000,    // the v1 round-time cap

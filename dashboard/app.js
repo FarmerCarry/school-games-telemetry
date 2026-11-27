@@ -656,8 +656,6 @@
   }
 
   // ---- filters ---------------------------------------------------------------------
-  // Every tab follows the period (the Data tab's quality panel too).
-  function periodApplies() { return true; }
   function segmented(host, label, items, current, onPick) {
     host.textContent = '';
     h('span', { class: 'filter-label', id: host.id + 'Label' }, host, label);
@@ -674,7 +672,6 @@
   function drawFilters() {
     var T = t(), periods = state.demo ? DEMO_PERIODS : PERIODS;
     var pf = $('periodFilter');
-    pf.hidden = !periodApplies();
     segmented(pf, T.period, periods.map(function (p) {
       return { value: p, text: p === 1 ? T.today : p === 'year' ? T.schoolYear : p === 'custom' ? T.customPeriod : T.days(p) };
     }), state.period, function (p) {
@@ -698,7 +695,7 @@
   function drawCustom() {
     var T = t(), box = $('customRange');
     box.textContent = '';
-    box.hidden = !(periodApplies() && state.period === 'custom' && state.customOpen);
+    box.hidden = !(state.period === 'custom' && state.customOpen);
     if (box.hidden) return;
     var c = state.custom || range();
     var form = h('form', { class: 'custom-form', novalidate: true }, box);
@@ -835,7 +832,6 @@
   function link(parent, hash, text, cls) {
     return h('a', { href: hash, class: cls || null }, parent, text);
   }
-  function gameLink(parent, slug) { return link(parent, '#/game/' + encodeURIComponent(slug), gameName(slug), 'game-link'); }
   // A section whose data an older server does not send (or that failed) says so.
   function missing(parent, x) { note(parent, x && x.failed ? failureText(x.failed) : t().noData, 'empty-part'); }
   var has = function (v) { return typeof v === 'number' && isFinite(v); };
@@ -892,16 +888,6 @@
   var OUTCOMES = [['won', 'var(--s1)'], ['lost', 'var(--s2)'], ['unfinished', 'var(--s3)'], ['other', 'var(--other)']];
   var ORDINAL = ['var(--o1)', 'var(--o2)', 'var(--o3)', 'var(--o4)'];
 
-  // A legend for a chart with two or more series: [[name, colour], ...].
-  function legendList(parent, label, items) {
-    var ul = h('ul', { class: 'legend', 'aria-label': label }, parent);
-    items.forEach(function (x) {
-      var li = h('li', null, ul);
-      h('span', { class: 'swatch' }, li).style.background = x[1];
-      h('span', null, li, x[0]);
-    });
-    return ul;
-  }
   // A heatmap legend: the lowest and highest value, and the empty cell.
   function legendOf(format) {
     var T = t();
@@ -915,15 +901,14 @@
     get: get, part: part, failed: failed, request: function (path, method, body) { return request(path, state.token, method, body); },
     requestPage: function (path) { return requestPage(path, state.token); }, store: { load: load, save: save },
     range: range, today: today, weekStart: weekStart, demo: function () { return state.demo; },
-    route: function () { return state.route; }, settings: function () { return state.settings; }, live: function () { return state.live; },
-    gameName: gameName, gameInfo: function (slug) { return own(INFO, slug); }, categoryName: categoryName, knownSlugs: knownSlugs,
+    route: function () { return state.route; },
+    gameName: gameName, gameInfo: function (slug) { return own(INFO, slug); }, categoryName: categoryName,
     dayText: dayText, shortDay: shortDay, longDay: longDay, weekdayName: weekdayName, minutesText: minutesText, secondsText: secondsText,
-    card: card, choice: choice, note: note, chip: chip, chipText: chipText, chipFor: chipFor, moreButton: moreButton, top: top,
-    section: section, tile: tile, link: link, gameLink: gameLink, missing: missing, has: has,
-    draw: draw, icon: icon, sentences: sentences, verdictNode: verdictNode, verdictText: verdictText, legendOf: legendOf, legendList: legendList,
+    card: card, choice: choice, note: note, chipFor: chipFor, moreButton: moreButton, top: top,
+    section: section, tile: tile, link: link, missing: missing, has: has,
+    draw: draw, sentences: sentences, verdictNode: verdictNode,
     OUTCOMES: OUTCOMES, ORDINAL: ORDINAL, failureText: failureText, renderView: renderView, refreshView: refreshView,
-    keepFocus: keepFocus, postSettings: postSettings, zonePicker: zonePicker, loadSettings: loadSettings, cutover: function () { return cutover(); },
-    go: function (hash) { location.hash = hash; }
+    zonePicker: zonePicker, loadSettings: loadSettings, cutover: function () { return cutover(); }
   };
 
   // ---- the Overview ----------------------------------------------------------------------
@@ -1244,7 +1229,6 @@
     h('span', null, flag, text);
     return flag;
   }
-  ctx.healthByGame = healthByGame;
   ctx.flagChip = flagChip;
 
   // ---- start ----------------------------------------------------------------------------

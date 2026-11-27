@@ -15,7 +15,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVER = path.resolve(HERE, '..');
@@ -38,10 +38,10 @@ const addDays = (day, n) => new Date(Date.parse(day + 'T00:00:00Z') + n * DAY_MS
 // files are the answers as the server wrote them; each export file is the lines of its
 // pages for today until NOW, without a header (the dashboard writes it).
 export async function makeDemo({ now = NOW, days = OPTIONS.days, sessions = OPTIONS.sessions, seed = OPTIONS.seed } = {}) {
-  const { hideSqliteWarning } = await import(path.join(SERVER, 'warnings.mjs'));
+  const { hideSqliteWarning } = await import(pathToFileURL(path.join(SERVER, 'warnings.mjs')).href);
   hideSqliteWarning();
   const [{ openDatabase }, { openStore }, { createApp }, { schoolDays }, { validateBatch }, { localDay, dayBounds }, { FILES }] = await Promise.all(
-    ['sqlite-d1.mjs', 'store.mjs', 'app.mjs', 'simulate.mjs', 'schema.mjs', 'clock.mjs', 'export.mjs'].map(f => import(path.join(SERVER, f))));
+    ['sqlite-d1.mjs', 'store.mjs', 'app.mjs', 'simulate.mjs', 'schema.mjs', 'clock.mjs', 'export.mjs'].map(f => import(pathToFileURL(path.join(SERVER, f)).href)));
   const store = openStore(openDatabase(':memory:'));
   const today = localDay(ZONE, now);
   // As `node simulate.mjs --db` does, at a pinned clock: each day's batches as they

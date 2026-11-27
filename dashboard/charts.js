@@ -142,7 +142,7 @@
   // ---- line chart: one series over days (or any ordered steps) ----------------
   // opts: { points: [{ title, tick, value (null = no number for that day), tip }], color, rtl, name,
   //         format(v) -> text, emptyText (the tooltip of a day without a number), height,
-  //         max (a shared scale for small multiples), step (a step line), axis(v) -> tick text,
+  //         max (a shared scale for small multiples), axis(v) -> tick text,
   //         keysHint, minWidth }
   function lineChart(host, opts) {
     host.textContent = '';
@@ -202,10 +202,8 @@
         s('circle', { cx: r1(X(seg[0])), cy: r1(Y(points[seg[0]].value)), r: 3, fill: opts.color }, marks);
         return;
       }
-      // A step line holds each value until the next step.
       var d = seg.map(function (i, k) {
-        if (!k) return 'M' + r1(X(i)) + ' ' + r1(Y(points[i].value));
-        return opts.step ? 'H' + r1(X(i)) + 'V' + r1(Y(points[i].value)) : 'L' + r1(X(i)) + ' ' + r1(Y(points[i].value));
+        return (k ? 'L' : 'M') + r1(X(i)) + ' ' + r1(Y(points[i].value));
       }).join('');
       s('path', { d: d + 'L' + r1(X(seg[seg.length - 1])) + ' ' + r1(Y(0)) + 'L' + r1(X(seg[0])) + ' ' + r1(Y(0)) + 'Z',
         fill: opts.color, class: 'area' }, marks);
@@ -386,27 +384,9 @@
       var common = { rtl: o.rtl, color: p.color || o.color, name: p.name || p.title, format: p.format || o.format, axis: p.axis || o.axis,
         height: o.height || 150, max: o.shared === false ? null : max, keysHint: o.keysHint, minWidth: 200 };
       if (p.draw === 'columns') columns(plot, Object.assign(common, { bars: p.bars }));
-      else lineChart(plot, Object.assign(common, { points: p.points, step: p.step, unit: p.unit || '' }));
+      else lineChart(plot, Object.assign(common, { points: p.points, unit: p.unit || '' }));
     });
     return out;
-  }
-
-  // ---- sparkline: a table cell's small trend --------------------------------------
-  // values: numbers (oldest first). A 2px line, its newest value dotted; the numbers
-  // themselves go in label (read by screen readers and shown as the tooltip).
-  function sparkline(host, values, opts) {
-    var o = opts || {}, n = values.length, W = o.width || 72, H = o.height || 20, pad = 3;
-    var max = Math.max.apply(null, values.concat([0])) || 1, rtl = !!o.rtl;
-    var X = function (i) { var f = n > 1 ? i / (n - 1) : 0.5; return rtl ? W - pad - f * (W - 2 * pad) : pad + f * (W - 2 * pad); };
-    var Y = function (v) { return H - pad - (v / max) * (H - 2 * pad); };
-    var svg = s('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, class: 'spark', role: 'img', 'aria-label': o.label || values.join(', ') }, host);
-    if (o.label) s('title', {}, svg, o.label);
-    s('line', { x1: pad, x2: W - pad, y1: H - pad + 0.5, y2: H - pad + 0.5, class: 'baseline' }, svg);
-    if (n) {
-      s('path', { d: values.map(function (v, i) { return (i ? 'L' : 'M') + r1(X(i)) + ' ' + r1(Y(v)); }).join(''), stroke: o.color || 'var(--s1)', class: 'line' }, svg);
-      s('circle', { cx: r1(X(n - 1)), cy: r1(Y(values[n - 1])), r: 2.5, fill: o.color || 'var(--s1)' }, svg);
-    }
-    return svg;
   }
 
   // ---- heatmap: a grid of cells on the sequential ramp -------------------------------
@@ -497,85 +477,6 @@
       }
     }
     return wrap;
-  }
-
-  // ---- calendar strip: one cell per day, weeks as columns -------------------------------
-  // days: [{ day, value, tip }] over a range; weekStart 'sun' | 'mon'; weekdays: the row
-  // labels in that order; the columns are weeks (oldest first, mirrored in RTL).
-  function calendarStrip(host, days, opts) {
-    var o = opts || {};
-    var first = o.weekStart === 'mon' ? 1 : 0;
-    var byDay = {};
-    days.forEach(function (d) { byDay[d.day] = d; });
-    var weekday = function (day) { return new Date(day + 'T00:00:00Z').getUTCDay(); };
-    var add = function (day, n) { return new Date(Date.parse(day + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10); };
-    var from = o.from || (days[0] && days[0].day), to = o.to || (days.length && days[days.length - 1].day);
-    if (!from || !to) { host.textContent = ''; return null; }
-    var week0 = add(from, -((weekday(from) - first + 7) % 7)), weeks = [];
-    for (var w = week0; w <= to; w = add(w, 7)) weeks.push(w);
-    var rows = [0, 1, 2, 3, 4, 5, 6].map(function (i) { return (i + first) % 7; });
-    return heatmap(host, {
-      name: o.name, rtl: o.rtl, className: 'calendar', cellSize: 12, corner: '',
-      rows: rows.map(function (wd) { return { label: o.weekdayLabel(wd) }; }),
-      cols: weeks.map(function (wk, i) { return { label: o.weekLabel(wk), tick: i % 4 === 0 ? o.weekTick(wk) : '' }; }),
-      value: function (r, c) {
-        var day = add(weeks[c], (rows[r] - first + 7) % 7);
-        if (day < from || day > to) return null;
-        return byDay[day] ? byDay[day].value : 0;
-      },
-      tip: function (r, c) {
-        var day = add(weeks[c], (rows[r] - first + 7) % 7);
-        return byDay[day] && byDay[day].tip ? byDay[day].tip : { title: o.dayTitle(day), rows: [{ value: day < from || day > to ? '—' : o.none }] };
-      },
-      legend: o.legend
-    });
-  }
-
-  // ---- dumbbell: before -> after for the same children ---------------------------------
-  // rows: [{ label, a, b, aText, bText, tip, chip }] on one scale [0, max]; the first value
-  // is a ring, the later one a filled dot, joined by a line (the change).
-  function dumbbell(host, opts) {
-    host.textContent = '';
-    var rows = opts.rows, rtl = !!opts.rtl;
-    var W = Math.max(260, Math.floor(host.clientWidth || 500));
-    var family = getComputedStyle(host).fontFamily, labelFont = '13px ' + family, valueFont = '600 13px ' + family, subFont = '12px ' + family;
-    var labelW = Math.round(Math.min(W * 0.34, Math.max(90, Math.max.apply(null, rows.map(function (r) {
-      return Math.max(textWidth(r.label, labelFont), r.chip ? textWidth(r.chip, subFont) : 0); }).concat([0])) + 14)));
-    var valueW = Math.max.apply(null, rows.map(function (r) { return textWidth(r.aText + ' → ' + r.bText, valueFont); }).concat([0])) + 12;
-    var narrow = W - labelW - valueW < 140;
-    // A small group's chip: after the label on a phone, on a line under it on a wide screen.
-    var chipLine = !narrow && rows.some(function (r) { return r.chip; });
-    var rowH = narrow || chipLine ? 44 : 32, top = 4, H = rows.length * rowH + top + 22;
-    var x0 = narrow ? 8 : labelW, x1 = narrow ? W - 8 : W - valueW;
-    var max = opts.max || 1, min = opts.min || 0;
-    var X = function (v) { var f = (v - min) / (max - min || 1); var x = x0 + f * (x1 - x0); return rtl ? W - x : x; };
-    var dir = rtl ? 'rtl' : 'ltr';
-    var svg = s('svg', { width: W, height: H, viewBox: '0 0 ' + W + ' ' + H, class: 'chart bars dumbbell', role: 'list', 'aria-label': opts.name }, host);
-    var axis = s('g', { class: 'grid' }, svg);
-    (opts.ticks || [min, max]).forEach(function (v) {
-      var x = r1(X(v)) + 0.5;
-      s('line', { x1: x, x2: x, y1: top, y2: H - 20, class: 'gridline' }, axis);
-      s('text', { x: x, y: H - 6, class: 'tick', 'text-anchor': 'middle', direction: 'ltr' }, axis, (opts.axis || compact)(v));
-    });
-    rows.forEach(function (row, i) {
-      var y = top + i * rowH, g = s('g', { class: 'mark', role: 'listitem' }, svg);
-      s('rect', { x: 0, y: y, width: W, height: rowH, class: 'row-hit' }, g);
-      var cy = narrow ? y + 30 : y + rowH / 2, ty = narrow ? y + 14 : cy + 4.5;
-      s('text', { x: rtl ? W : 0, y: row.chip && !narrow ? cy - 3 : ty, class: 'bar-label' + (row.chip ? ' is-small' : ''), 'text-anchor': 'start', direction: dir }, g,
-        fit(row.label + (row.chip && narrow ? ' · ' + row.chip : ''), narrow ? W - valueW - 8 : labelW - 12, labelFont));
-      if (row.chip && !narrow) s('text', { x: rtl ? W : 0, y: cy + 13, class: 'bar-sub chip-text', 'text-anchor': 'start', direction: dir }, g, fit(row.chip, labelW - 12, subFont));
-      // "62% → 71%" always reads left to right (first, then latest), in its own column.
-      var atEnd = rtl ? !narrow : narrow;
-      s('text', { x: rtl ? (narrow ? 0 : valueW - 8) : (narrow ? W : W - valueW + 8), y: ty, class: 'bar-value', 'text-anchor': atEnd ? 'end' : 'start', direction: 'ltr' }, g,
-        row.aText + ' → ' + row.bText);
-      if (row.a != null && row.b != null) {
-        s('line', { x1: r1(X(row.a)), x2: r1(X(row.b)), y1: cy, y2: cy, stroke: opts.color || 'var(--s1)', class: 'db-line' }, g);
-        s('circle', { cx: r1(X(row.a)), cy: cy, r: 5, class: 'db-before', stroke: opts.color || 'var(--s1)' }, g);
-        s('circle', { cx: r1(X(row.b)), cy: cy, r: 5, fill: opts.color || 'var(--s1)', class: 'db-after' }, g);
-      }
-      if (row.tip) interactive(g, row.tip);
-    });
-    return svg;
   }
 
   // ---- stacked rows with a legend: ordered parts of one whole per row ------------------
@@ -694,7 +595,7 @@
 
   // ---- table twin -------------------------------------------------------------
   // columns: [{ label, num }]; rows: arrays of cell text, or { text, colspan } for a muted
-  // cell, or { node } for a cell built by the caller (a sparkline, a link).
+  // cell, or { node } for a cell built by the caller (a link).
   function table(host, caption, columns, rows) {
     host.textContent = '';
     var wrap = h('div', { class: 'table-wrap' }, host);
@@ -717,9 +618,8 @@
   }
 
   window.SGCharts = {
-    h: h, s: s, lineChart: lineChart, barList: barList, stackedBar: stackedBar, table: table, fit: fit, textWidth: textWidth,
-    columns: columns, multiples: multiples, sparkline: sparkline, heatmap: heatmap, calendarStrip: calendarStrip,
-    dumbbell: dumbbell, stackRows: stackRows,
-    interactive: interactive, showTip: showTip, hideTip: hideTip, ticks: ticks, compact: compact, barPath: barPath
+    h: h, s: s, lineChart: lineChart, barList: barList, stackedBar: stackedBar, table: table, fit: fit,
+    columns: columns, multiples: multiples, heatmap: heatmap, stackRows: stackRows,
+    interactive: interactive, hideTip: hideTip, compact: compact
   };
 }());

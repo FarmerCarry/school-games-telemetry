@@ -1,24 +1,28 @@
 // What the score means in each game that passes one to Kit.stats.end(result, score):
 // [Arabic, English], each completing «النتيجة هنا هي …» / "The score here is …".
 // Written by hand from the games' own code; a score is only comparable within one game.
-// All 48 single-player score-reporting games are listed (all 53 except critter-mart,
+// All 53 single-player score-reporting games are listed (all 58 except critter-mart,
 // pizza-clicker, tank-splat, connect-four and tic-tac-toe).
 window.SG_SCORES = {
   'air-hockey': ['أهداف الطفل في المباراة', 'the child’s goals in the match'],
+  'ball-storm': ['نقاط الجولة', 'the points of the run'],
   'balloon-blast': ['نجوم مرحلة المغامرة (من 0 إلى 3)، وفي المعركة جولات الفوز (من 0 إلى 3)', 'the stars of an adventure stage (0 to 3); in battle mode, the rounds won (0 to 3)'],
   'beat-dash': ['المسافة التي قطعها الطفل من المرحلة بالنسبة المئوية (100 عند إنهائها)', 'how far through the level the child got, in % (100 when it is finished)'],
   'blob-battle': ['أكبر حجم بلغه الهلام في الجولة', 'the biggest size the blob reached in the round'],
   'block-burst': ['نقاط الجولة', 'the points of the run'],
   'block-world': ['نجوم العالم المحفوظ: عدد المهمات المنجزة فيه', 'the stars of the saved world: the quests finished in it'],
+  'bonk-garden': ['نقاط الجولة', 'the points of the round'],
   'bubble-bop': ['نجوم المرحلة المنتهية (من 1 إلى 3)، وفي جولات الحفلة النقاط', 'the stars of a finished level (1 to 3); in the party rounds, the points'],
   'cake-guards': ['نجوم المرحلة الرابحة (من 1 إلى 3)، وإلا فعدد الموجات التي صُدّت', 'the stars of a won level (1 to 3); otherwise the waves held back'],
   'candy-rope': ['النجوم التي جُمعت في المرحلة المنتهية (من 0 إلى 3)', 'the stars collected in a finished level (0 to 3)'],
   'chaos-island': ['نجوم الجولة الفردية (من 0 إلى 3)، وفي اللعب المتواصل عدد الجولات التي صمد فيها', 'the stars of a solo match (0 to 3); in endless mode, the rounds survived'],
+  'cloud-hop': ['نجوم المرحلة الفائزة (من 1 إلى 3)، وعند الخسارة أو في اللعب المتواصل الارتفاع بالأمتار', 'the stars of a won level (1 to 3); on a loss or in endless mode, the height in metres'],
   'desk-karts': ['نقاط السباق الفردي', 'the points of a solo race'],
   'dino-3d': ['نجوم المرحلة الفائزة (من 1 إلى 3) أو البيض المجموع عند الخسارة، وفي اللعب المتواصل المسافة بالأمتار', 'the stars of a won level (1 to 3) or eggs collected on a loss; in endless mode, the distance in metres'],
   'drift-king': ['المسافة المقطوعة مع مكافأة الانزلاق', 'the distance driven plus the drift bonus'],
   'egg-rush': ['نجوم السباق الفردي المنتهي (من 1 إلى 3)', 'the stars of a finished solo race (1 to 3)'],
   'fire-and-ice': ['نجوم المرحلة المنتهية', 'the stars of a finished level'],
+  'frog-pinball': ['نقاط الجولة', 'the points of the round'],
   'hoop-heads': ['نقاط الطفل في المباراة', 'the child’s points in the match'],
   'juicy-drop': ['نقاط دمج الفواكه في الجولة', 'the fruit-merge points of the round'],
   'key-runner': ['نجوم المرحلة المنتهية (من 1 إلى 3)، وفي اللعب الحر عدد المفاتيح الصحيحة', 'the stars of a finished stage (1 to 3); in endless mode, the right keys pressed'],
@@ -36,6 +40,7 @@ window.SG_SCORES = {
   'recess-kitchen': ['نقاط الطلبات في الوردية الفردية', 'the points earned from orders in a solo shift'],
   'road-hopper': ['المسافة التي قفزها الطفل', 'how far the child hopped'],
   'robo-swarm': ['ثواني الصمود في الجولة الفردية', 'the seconds survived in a solo run'],
+  'sandwich-tower': ['نقاط المرحلة الفردية، وفي وضع «إلى القمر» ارتفاع البرج بعدد القطع', 'the points of a solo level; in endless mode, the tower height in pieces'],
   'seek-zoom': ['نجوم المشهد الفائز (من 1 إلى 3)، وعند انتهاء الوقت عدد الأشياء المكتشفة', 'the stars of a won scene (1 to 3); when time runs out, the objects found'],
   'shortcut-factory': ['نجوم المرحلة المنتهية (من 1 إلى 3)، وفي وضع السباق النقاط', 'the stars of a finished level (1 to 3); in rush mode, the points'],
   'skybound-golf': ['مسافة الضربة', 'the distance of the shot'],

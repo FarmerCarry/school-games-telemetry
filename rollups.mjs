@@ -71,9 +71,9 @@ export const A_KEYS = ['', '6-7', '8-9', '10-11'];
 // The per-student rollups of schema 4, dropped by the upgrade to schema 5.
 export const DROPPED_ROLLUPS = ['r_student_day', 'r_student_game'];
 // The r_stat metrics, in the order of the spec's table (schema 4 also had daymin, attempt
-// and tenure, which were counted per student: the upgrade deletes their rows).
-export const METRICS = ['hour', 'rhour', 'sesslen', 'games', 'visitlen', 'flow', 'persist', 'fatigue', 'qrun', 'tier', 'tutorial'];
-export const DROPPED_METRICS = ['daymin', 'attempt', 'tenure'];
+// and tenure per student, plus unrendered rhour, qrun and tutorial; the upgrade deletes them).
+export const METRICS = ['hour', 'sesslen', 'games', 'visitlen', 'flow', 'persist', 'fatigue', 'tier'];
+export const DROPPED_METRICS = ['daymin', 'attempt', 'tenure', 'rhour', 'qrun', 'tutorial'];
 // The lower bounds of the buckets: minutes of a session; seconds of a visit; minutes into
 // the session at a round's start.
 export const BUCKETS = {
@@ -188,10 +188,6 @@ const ENGAGED = '(SELECT TOTAL(x.engaged_ms) FROM st_visits x WHERE x.sid = s.id
 // The wire version of a session's PC ('2': the old portal), the k2 of sesslen.
 export const WIRE_KIND = "CASE WHEN s.wire = 2 THEN '2' ELSE '3' END";
 const SOLO = ' AND r.code IS NOT NULL AND r.duo = 0';
-// Losses in a row just before round r in its visit: the lost rounds after its last earlier round that was not a loss.
-const LOSSES = "(SELECT COUNT(*) FROM st_rounds p WHERE p.sid = r.sid AND p.n = r.n AND p.k < r.k AND p.code = 'l' AND p.k > " +
-  "IFNULL((SELECT MAX(o.k) FROM st_rounds o WHERE o.sid = r.sid AND o.n = r.n AND o.k < r.k AND (o.code IS NULL OR o.code <> 'l')), 0))";
-const tutorialMark = x => `EXISTS (SELECT 1 FROM st_marks t WHERE t.sid = v.sid AND t.kind = 'tu' AND t.n = v.n AND t.x = '${x}')`;
 
 // The r_stat metrics as parts: what they read (with the scope's sessions), and the key
 // (slug, k1, k2) and sums of their rows; a part may read a derived table x, with its own day.
@@ -201,8 +197,6 @@ function statParts(scope) {
   return [
     { metric: 'hour', from: V, where: ' AND v.t_open IS NOT NULL', slug: "''", k1: hourOf(scope, 's.start_s + v.t_open'),
       k2: weekdayOf(scope, 's.start_s + v.t_open'), values: { n: 'COUNT(*)', ms: 'TOTAL(v.engaged_ms)' } },
-    { metric: 'rhour', from: R, where: ' AND r.t0 IS NOT NULL', slug: "''", k1: hourOf(scope, 's.start_s + r.t0'),
-      k2: weekdayOf(scope, 's.start_s + r.t0'), values: { n: 'COUNT(*)', ...pick(outcomes, ['w', 'l', 'q']), ...accuracy, ...reaction } },
     { metric: 'sesslen', derived: sessionRows(`${WIRE_KIND} AS kind, ${ENGAGED} AS m`), slug: "''", k1: bucket('x.m', BUCKETS.sesslen, 60000),
       k2: 'x.kind', values: { n: 'COUNT(*)', ms: 'TOTAL(x.m)' } },
     { metric: 'games', derived: sessionRows('(SELECT COUNT(DISTINCT y.slug) FROM st_visits y WHERE y.sid = s.id AND y.t_open IS NOT NULL) AS g'),
@@ -223,14 +217,8 @@ function statParts(scope) {
       values: { n: 'COUNT(*)', gap_sum: 'TOTAL(CASE WHEN nx.t0 IS NOT NULL THEN MAX(nx.t0 - r.t, 0) END)', gap_n: 'COUNT(nx.t0)' } },
     { metric: 'fatigue', from: R, where: SOLO, slug: 'r.slug', k1: bucket('IFNULL(r.t0, r.t)', BUCKETS.fatigue, 60), k2: "''",
       values: { n: 'COUNT(*)', ...pick(outcomes, ['w', 'l', 'q']), ...accuracy, ...reaction, inputs: 'TOTAL(r.inputs)', ms: 'TOTAL(r.ms)' } },
-    { metric: 'qrun', from: R, where: SOLO + " AND (r.code = 'q' OR NOT EXISTS (SELECT 1 FROM st_rounds y WHERE y.sid = r.sid AND y.n = r.n AND y.k > r.k))",
-      slug: 'r.slug', k1: `CAST(MIN(${LOSSES}, 5) AS TEXT)`, k2: "CASE WHEN r.code = 'q' THEN 'q' ELSE 'x' END", values: { n: 'COUNT(*)' } },
     { metric: 'tier', from: R, where: ' AND r.code IS NOT NULL AND r.tier0 > 0', slug: 'r.slug', k1: 'CAST(r.tier0 AS TEXT)', k2: "''",
-      values: { n: 'COUNT(*)', ...pick(outcomes, ['w', 'l', 'q']), ms: 'TOTAL(r.ms)', win_ms: "TOTAL(CASE WHEN r.code = 'w' THEN r.ms END)" } },
-    { metric: 'tutorial', from: V, slug: 'v.slug',
-      k1: `CASE WHEN ${tutorialMark('d')} THEN 'done' WHEN ${tutorialMark('s')} THEN 'start' ELSE 'none' END`,
-      k2: "IFNULL((SELECT y.code FROM st_rounds y WHERE y.sid = v.sid AND y.n = v.n AND y.code IS NOT NULL ORDER BY y.k LIMIT 1), '')",
-      values: { n: 'COUNT(*)' } }
+      values: { n: 'COUNT(*)', ...pick(outcomes, ['w', 'l', 'q']), ms: 'TOTAL(r.ms)', win_ms: "TOTAL(CASE WHEN r.code = 'w' THEN r.ms END)" } }
   ];
 }
 
@@ -255,13 +243,6 @@ export function unionAll(parts, max = 4) {
 export const ARGS = 32;
 export const jsonArray = list => list.length <= ARGS ? `json_array(${list.join(', ')})`
   : jsonArray(Array.from({ length: Math.ceil(list.length / ARGS) }, (_, i) => `json_array(${list.slice(i * ARGS, (i + 1) * ARGS).join(', ')})`));
-// json_object of [key, SQL] pairs: the first 16 in json_object, the rest added 15 at a time by json_set.
-export function jsonObject(pairs) {
-  const arg = ([key, sql]) => [`'${key}'`, sql];
-  let text = `json_object(${pairs.slice(0, 16).flatMap(arg).join(', ')})`;
-  for (let i = 16; i < pairs.length; i += 15) text = `json_set(${text}, ${pairs.slice(i, i + 15).flatMap(([key, sql]) => [`'$.${key}'`, sql]).join(', ')})`;
-  return text;
-}
 
 const keysOf = table => ROLLUPS[table].key.map(([c]) => c);
 const valuesOf = table => [...(ROLLUPS[table].text || []), ...ROLLUPS[table].sums];

@@ -32,9 +32,7 @@
  * always gives the same batches, so a repeated run adds nothing. Every batch is checked
  * with schema.mjs.
  *
- * Tests import history() (the v3 school's batches) and historyV2() (milestone 2's
- * generator: v2 batches only, one per game close, kept for the comparisons with
- * milestone 2's store).
+ * Tests import history() and schoolDays() (the v3 school's batches).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -100,7 +98,7 @@ function catalogSlugs() {
   }
 }
 
-/* ------------------------------------------------------- milestone 2 (v2) */
+/* --------------------------------------------------------- game traits */
 // Stable traits per game, derived from its slug.
 function gameTraits(slug) {
   const r = random(hashString(slug));
@@ -117,8 +115,6 @@ function gameTraits(slug) {
   };
 }
 
-const BANDS = [['6-7', 30], ['8-9', 34], ['10-11', 30], ['', 6]];
-const SKILL = { '6-7': 0.15, '8-9': 0.4, '10-11': 0.62, '': 0.38 };
 const SOURCES = [['featured', 22], ['catalog', 30], ['recent', 18], ['favorites', 8], ['category', 6], ['quick', 3],
   ['search', 4], ['related', 5], ['surprise', 3], ['reload', 2], ['history', 1], ['direct', 2]];
 const DEVICES = { cores: [[1, 2], [2, 25], [4, 50], [8, 20], [16, 3]], memory: [[0, 7], [1, 3], [2, 20], [4, 45], [8, 25]],
@@ -133,86 +129,6 @@ function spread(r, total, weights) {
     out[k]++;
   }
   return out;
-}
-
-// One portal session of milestone 2 as a list of v2 batches (one at each game close).
-function session(r, games) {
-  const band = r.pick(BANDS), guest = r.chance(0.2), fresh = !guest && r.chance(0.12);
-  const d = [r.pick(DEVICES.cores), r.pick(DEVICES.memory), r.pick(DEVICES.screen)];
-  const slow = d[0] <= 2 || d[1] <= 2;
-  const base = { v: 2, s: r.hex(12), k: BUILD, m: r.chance(0.15) ? 'app' : 'web', a: band, d };
-  let level = guest ? 0 : fresh ? 1 : r.int(1, band === '6-7' ? 8 : 20);
-  // A quarter of the sessions are still playing (or their tab died): the last game never closes.
-  const batches = [], starts = new Map(), open = r.chance(0.25);
-  let t = 0, engaged = 0, ev = [['ss', 0, fresh ? 1 : 0, fresh ? 0 : guest ? 0 : r.int(1, 3), guest ? 4 : fresh ? 4 : r.int(0, 3), level]];
-  const flush = () => { if (ev.length) batches.push({ ...base, b: r.hex(16), ev }); ev = []; };
-  for (let g = 0, n = r.int(1, 4); g < n; g++) {
-    const game = fresh && g === 0 ? games.find(x => x.starter) || games[0] : r.pick(games.map(x => [x, x.popularity[band]]));
-    t += r.int(2, 20);
-    ev.push(['go', t, game.slug, fresh && g === 0 && game.starter ? 'starter' : r.pick(SOURCES), guest || fresh ? 0 : r.int(0, 4)]);
-    if (r.chance(slow && game.heavy ? 0.06 : 0.015)) {
-      t += 15;
-      ev.push(['er', t, game.slug, r.pick([['t', 3], ['x', 1], ['l', 1]])], ['gx', t, game.slug, 0, [0, 0, 0, 0, 0, 0], [0, 0, 0, 0]]);
-      flush();
-      continue;
-    }
-    ev.push(['ld', t + 1, game.slug, Math.round(game.loadMs * (slow ? 1.9 : 1) * (0.7 + r.next() * 0.6))]);
-    t += 2;
-    let skill = Math.min(1, Math.max(0, SKILL[band] + (r.next() - 0.5) * 0.3)), at = 0, gameMs = 0, keys = 0;
-    for (let round = 0, rounds = r.int(1, 8); round < rounds; round++) {
-      const id = game.levels[Math.min(at, game.levels.length - 1)];
-      const replay = starts.get(game.slug + id) || 0;
-      starts.set(game.slug + id, replay + 1);
-      const tier = game.dda ? 1 + Math.min(4, Math.floor(skill * 5)) : 0;
-      ev.push(['rs', t, game.slug, id, tier, replay]);
-      const ms = Math.round(game.roundSec * 1000 * (0.4 + r.next() * 1.2));
-      const quit = r.chance(0.08 + (band === '6-7' ? 0.06 : 0) + (slow && game.heavy ? 0.08 : 0));
-      const won = !quit && r.chance(Math.min(0.95, game.winRate + (skill - 0.4) * 0.5 - at * 0.02));
-      const code = quit ? 'q' : id === 'endless' ? 'e' : won ? 'w' : 'l';
-      const actions = Math.round(ms / 1000 * (0.4 + skill)), hits = Math.round(actions * (0.45 + skill * 0.5));
-      t += Math.ceil(ms / 1000);
-      ev.push(['re', t, game.slug, code, id, ms, code === 'q' ? -1 : r.int(0, 50) * 10, tier, hits, actions - hits, spread(r, hits, RT[band])]);
-      if (won) at++;
-      if (game.dda) skill = Math.min(1, Math.max(0, skill + (won ? 0.06 : -0.08)));
-      gameMs += ms; keys += actions;
-      if (!guest && r.chance(0.12)) ev.push(['lv', t, ++level]);
-      if (ev.length > 150) flush();
-    }
-    const frames = Math.round(gameMs / 1000 * 58), strain = (slow ? 2.5 : 1) * (game.heavy ? 2 : 1);
-    const f = spread(r, Math.min(frames, 4000), [100, 6 * strain, 1.5 * strain, 0.08 * strain]).map(x => Math.round(x * frames / Math.min(frames, 4000) || 0));
-    t += r.int(1, 5);
-    if (open && g === n - 1) break;
-    ev.push(['gx', t, game.slug, gameMs, spread(r, keys, slow ? [30, 35, 20, 8, 5, 2] : [60, 28, 8, 2, 1, 1]), f]);
-    engaged += gameMs;
-    flush();
-  }
-  if (!open) ev.push(['se', t + r.int(5, 60), engaged]);
-  flush();
-  for (const batch of batches) {
-    const valid = validateBatch(batch);
-    if (!valid || valid.dropped) throw new Error('simulator produced an invalid batch');
-  }
-  return batches;
-}
-
-// Milestone 2's --db history: { batch, now } for `sessions` per weekday (a sixth at the
-// weekend) over the `days` UTC days that end with the day of `today` (ms). Each session
-// starts between 07:00 and 14:59 UTC and its batches arrive 20 to 240 s apart, so no
-// session crosses midnight. Only v2 batches, as milestone 2's store takes them.
-export function* historyV2({ days = 28, sessions = 120, seed = 1, today = Date.now(), games = catalogSlugs() } = {}) {
-  const traits = games.map(gameTraits), first = Math.floor(today / DAY_MS) * DAY_MS;
-  for (let day = days - 1; day >= 0; day--) {
-    const r = random(seed * 100003 + day);
-    // Fewer children at the weekend, more mid-week.
-    const weekday = new Date(first - day * DAY_MS).getUTCDay(), count = weekday % 6 ? sessions : Math.round(sessions / 6);
-    for (let i = 0; i < count; i++) {
-      let now = first - day * DAY_MS + r.int(7, 14) * 3600000 + r.int(0, 3599) * 1000;
-      for (const batch of session(r, traits)) {
-        yield { batch, now };
-        now += r.int(20, 240) * 1000;
-      }
-    }
-  }
 }
 
 /* --------------------------------------------------------- the v3 school */

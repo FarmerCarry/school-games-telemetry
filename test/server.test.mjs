@@ -74,7 +74,11 @@ function dashboard(dir) {
   fs.writeFileSync(path.join(folder, 'sub', 'index.html'), '<!doctype html><title>Sub</title>');
   fs.writeFileSync(path.join(folder, '.secret'), 'SENTINEL-DOTFILE');
   fs.writeFileSync(path.join(dir, 'outside.txt'), 'SENTINEL-OUTSIDE');
-  fs.symlinkSync(path.join(dir, 'outside.txt'), path.join(folder, 'link.txt'));
+  try {
+    fs.symlinkSync(path.join(dir, 'outside.txt'), path.join(folder, 'link.txt'));
+  } catch (err) {
+    if (err.code !== 'EPERM') throw err;
+  }
   return folder;
 }
 
@@ -171,9 +175,11 @@ test('the Node host serves the dashboard folder with the headers of its _headers
   const head = await s.send('HEAD', '/');
   assert.equal(head.status, 200);
   assert.equal(head.text, '');
-  for (const pathname of ['/_headers', '/.secret', '/%2esecret', '/link.txt', '/../outside.txt', '/%2e%2e/outside.txt',
+  const blocked = ['/_headers', '/.secret', '/%2esecret', ...(fs.existsSync(path.join(s.dir, 'dashboard', 'link.txt')) ? ['/link.txt'] : []),
+    '/../outside.txt', '/%2e%2e/outside.txt',
     '/..%2foutside.txt', '/sub/..%2f..%2foutside.txt', '/%2e%2e%5coutside.txt', '/sub', '//index.html', '/index.html%00',
-    '/%E0%A4%A', '/nothing/', '/v1/index.html']) {
+    '/%E0%A4%A', '/nothing/', '/v1/index.html'];
+  for (const pathname of blocked) {
     const res = await s.send('GET', pathname);
     assert.equal(res.status, 404, pathname);
     assert.match(res.headers['content-type'], /^application\/json/, pathname);
@@ -697,7 +703,7 @@ test('CORS echoes only listed origins, never with credentials, and null only whe
 test('a batch must name the site, and a game that is not in the catalog is not stored', async t => {
   const { isGameSlug } = await import('../schema.mjs');
   const { GAME_SLUGS } = await import('../games.mjs');
-  assert.equal(GAME_SLUGS.length, 53);
+  assert.equal(GAME_SLUGS.length, 58);
   assert.deepEqual(GAME_SLUGS, [...GAME_SLUGS].sort());
   assert.equal(new Set(GAME_SLUGS).size, GAME_SLUGS.length);
   for (const slug of ['bubble-bop', 'road-hopper', 'splat-catapult', 'recess-kitchen', 'desk-karts', 'toy-castle', 'magic-crayon', 'juicy-drop', 'robo-swarm', 'balloon-blast']) {
@@ -1219,9 +1225,10 @@ test('admin requests take a JSON body of at most 4 KB with exactly their fields;
     ['GET', '/v1/admin/game', undefined, {}, 400, 'slug'], ['GET', '/v1/admin/game?slug=Road%20Hopper', undefined, {}, 400, 'slug'],
     ['GET', '/v1/admin/game?slug=constructor', undefined, {}, 400, 'slug'], ['GET', '/v1/admin/game?slug=road-hopper&from=2026-13-01', undefined, {}, 400, 'from'],
     ['GET', '/v1/admin/stats', undefined, {}, 400, 'metrics'], ['GET', '/v1/admin/stats?metrics=hour,minutes', undefined, {}, 400, 'metrics'],
-    // The metrics schema 4 counted per student are no metrics any more.
+    // The metrics schema 4 counted per student and the unrendered metrics are no metrics any more.
     ['GET', '/v1/admin/stats?metrics=hour,attempt', undefined, {}, 400, 'metrics'], ['GET', '/v1/admin/stats?metrics=daymin', undefined, {}, 400, 'metrics'],
-    ['GET', '/v1/admin/stats?metrics=tenure', undefined, {}, 400, 'metrics'],
+    ['GET', '/v1/admin/stats?metrics=tenure', undefined, {}, 400, 'metrics'], ['GET', '/v1/admin/stats?metrics=rhour', undefined, {}, 400, 'metrics'],
+    ['GET', '/v1/admin/stats?metrics=qrun', undefined, {}, 400, 'metrics'], ['GET', '/v1/admin/stats?metrics=tutorial', undefined, {}, 400, 'metrics'],
     ['GET', '/v1/admin/stats?metrics=hour&slug=x_y', undefined, {}, 400, 'slug'], ['GET', '/v1/admin/pcs?from=2025-01-01&to=2026-10-20', undefined, {}, 400, 'range'],
     ['GET', '/v1/admin/export', undefined, {}, 400, 'file'], ['GET', '/v1/admin/export?file=games', undefined, {}, 400, 'file'],
     ['GET', '/v1/admin/export?file=students', undefined, {}, 400, 'file'], ['GET', '/v1/admin/export?file=student_days', undefined, {}, 400, 'file'],
@@ -1286,7 +1293,7 @@ test('a game, the r_stat metrics and the PCs are exact for a hand-built school, 
     assert.equal(rows.length > 0, rolled);
     if (rolled) {
       assert.deepEqual(rows.filter(r => r.metric === 'tier').map(r => [r.k1, r.n, r.w, r.l, r.ms, r.win_ms]), [['2', 2, 1, 1, 60000, 30000]]);
-      assert.ok(rows.every(r => !['hour', 'rhour', 'sesslen', 'games'].includes(r.metric)), 'the metrics of all games are not the game\'s');
+      assert.ok(rows.every(r => !['hour', 'rhour', 'sesslen', 'games', 'qrun', 'tutorial'].includes(r.metric)), 'the metrics of all games and dropped metrics are not the game\'s');
     }
     // An older dashboard's band is ignored.
     assert.deepEqual(await get('/v1/admin/game?slug=road-hopper&' + q + '&band=10-11'), game);
@@ -1451,14 +1458,14 @@ test('export lines are exact for a hand-built school: dates and times on the sch
 
 test('daily_games holds milestone 2\'s frozen days too, on UTC receipt days, next to the school\'s days', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-export-m2-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let app;
+  t.after(async () => { if (app) await app.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const file = path.join(dir, 't.db');
   await milestone2(file, [['agg_games', { day: '2026-10-20', a: '6-7', slug: 'road-hopper', sessions: 3, opens: 5, engaged_ms: 120000, starts: 4, ends: 4,
     w: 2, l: 2, tier_sum: 6, tier_n: 3, hits: 3, misses: 1 }], ['agg_games', { day: '2026-10-20', a: '8-9', slug: 'road-hopper', sessions: 1, opens: 2,
     engaged_ms: 60000, starts: 1, ends: 1, w: 1 }], ['agg_games', { day: '2026-10-19', a: '', slug: 'maze-dash', sessions: 1, opens: 1 }]]);
   const clock = { now: START };
-  const app = createApp({ dbPath: file, now: () => clock.now, adminToken: TOKEN, allowedOrigins: [ORIGIN], dashboardDir: null });
-  t.after(() => app.close());
+  app = createApp({ dbPath: file, now: () => clock.now, adminToken: TOKEN, allowedOrigins: [ORIGIN], dashboardDir: null });
   const { port } = await app.listen(0, '127.0.0.1');
   const base = `http://127.0.0.1:${port}`;
   assert.equal((await request(base, 'POST', '/v1/batch', { headers: { 'content-type': 'text/plain', origin: ORIGIN },
@@ -1472,14 +1479,14 @@ test('daily_games holds milestone 2\'s frozen days too, on UTC receipt days, nex
 
 test('simulate.mjs --db writes a school\'s days of v3 batches and rolls them up with the store\'s own cron', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-simulate-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let db;
+  t.after(() => { db?.close(); fs.rmSync(dir, { recursive: true, force: true }); });
   const file = path.join(dir, 'school.db');
   const run = spawnSync(process.execPath, [path.join(repo, 'simulate.mjs'), '--db', file, '--days', '8', '--sessions', '30', '--seed', '4'],
     { encoding: 'utf8', timeout: 120000 });
   assert.equal(run.status, 0, run.stderr);
   assert.match(run.stdout, /^simulate: (\d+) of \1 batches stored in .* \(8 days, seed 4, \d+ days rolled up\)/);
-  const db = openDatabase(file);
-  t.after(() => db.close());
+  db = openDatabase(file);
   const one = async text => (await db.prepare(text).first());
   const settings = Object.fromEntries((await db.prepare('SELECT key, value FROM settings').all()).results.map(r => [r.key, r.value]));
   assert.deepEqual([settings.tz, settings.tz_source], ['Asia/Riyadh', 'pcs']);
@@ -1588,13 +1595,17 @@ test('retention: facts after 400 days (or the owner\'s choice), rollups after 80
 
   // A database the milestone-2 server filled: its daily totals stay, read only, until RETENTION_DAYS.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-m2-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let old, later;
+  t.after(async () => {
+    if (later) await later.close();
+    if (old) await old.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   const file = path.join(dir, 't.db');
   await milestone2(file, [['agg_days', { day: '2026-01-01', a: '6-7', sessions: 4, level_ups: 2 }], ['agg_days', { day: '2026-01-02', a: '6-7', sessions: 3 }],
     ['agg_devices', { day: '2026-01-01', a: '6-7', cores: 4, mem: 4, screen: 1920, sessions: 4 }]]);
   const clock = { now: day0 + 180 * DAY_MS };
-  const old = createApp({ dbPath: file, now: () => clock.now, retentionDays: 180 });
-  t.after(() => old.close());
+  old = createApp({ dbPath: file, now: () => clock.now, retentionDays: 180 });
   await old.listen(0, '127.0.0.1');
   assert.deepEqual((await old.store.db.prepare('SELECT day FROM agg_days ORDER BY day').all()).results.map(r => r.day), ['2026-01-01', '2026-01-02'],
     'exactly 180 days old is kept');
@@ -1603,9 +1614,9 @@ test('retention: facts after 400 days (or the owner\'s choice), rollups after 80
     'one daily-totals row and one device row');
   assert.deepEqual((await old.store.db.prepare('SELECT day, sessions FROM agg_days').all()).results, [{ day: '2026-01-02', sessions: 3 }]);
   await old.close();
+  old = null;
   // A restart purges at once. legacy_until (the day of the update) goes once it is past retention too.
-  const later = createApp({ dbPath: file, now: () => clock.now, retentionDays: 180 });
-  t.after(() => later.close());
+  later = createApp({ dbPath: file, now: () => clock.now, retentionDays: 180 });
   clock.now = day0 + 182 * DAY_MS;
   await later.listen(0, '127.0.0.1');
   for (const table of Object.keys(TABLES)) assert.equal((await later.store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).first()).n, 0, table);
@@ -1696,15 +1707,21 @@ test('the storage guard removes the round details of the oldest 30 days of facts
 
 test('the store creates schema 5, upgrades schema 2 and 3 one step at a time keeping the frozen totals (their age bands cleared), and refuses a newer one', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-schema-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  let first, upgraded, two, newer;
+  t.after(async () => {
+    if (newer) await newer.close();
+    if (two) two.close();
+    if (upgraded) await upgraded.close();
+    if (first) await first.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   const names = async db => (await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()).results.map(r => r.name);
   const settings = async db => Object.fromEntries((await db.prepare('SELECT key, value FROM settings').all()).results.map(r => [r.key, r.value]));
   const v5 = ['batches', 'kpi_cache', 'live', 'meta', 'r_day', 'r_device_day', 'r_game_day', 'r_level_day', 'r_pc_day', 'r_source_day',
     'r_stat', 'roll_days', 'settings', 'st_marks', 'st_pcs', 'st_rounds', 'st_sessions', 'st_visits', 'usage'];
   // A new database: schema 5 at once, without the aggregates, with nothing to clear.
   const fresh = path.join(dir, 'fresh.db');
-  const first = createApp({ dbPath: fresh, now: () => START });
-  t.after(() => first.close());
+  first = createApp({ dbPath: fresh, now: () => START });
   await first.listen(0, '127.0.0.1');
   assert.deepEqual(await names(first.store.db), v5);
   assert.deepEqual((await first.store.db.prepare('SELECT * FROM meta').all()).results, [{ key: 'schema', value: 5 }]);
@@ -1712,14 +1729,14 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
     facts_since: '2026-10-20', legacy_until: '', v3_since: '', rv: '2', rolled_through: '', trimmed_before: '', rebuild: '', trimmed_size: '', trim_to: '',
     scrub: '', scrub_id: '0', scrub_end: '0', scrub_day: '' }, 'rv went up with the purge at start');
   await first.close();
+  first = null;
 
   // Milestone 2's schema 3 with a day of totals in two age bands: one step to 5; the totals stay, the bands added up.
   const m2 = path.join(dir, 'm2.db');
   await milestone2(m2, [['agg_days', { day: '2026-10-20', a: '6-7', sessions: 3, web: 3, opens: 5, engaged_ms: 120000, new_profiles: 1, level_ups: 2 }],
     ['agg_days', { day: '2026-10-20', a: '8-9', sessions: 1, web: 1, opens: 2, engaged_ms: 60000, guests: 1 }],
     ['agg_games', { day: '2026-10-20', a: '6-7', slug: 'road-hopper', sessions: 3, opens: 5 }]]);
-  const upgraded = createApp({ dbPath: m2, now: () => START, adminToken: TOKEN, allowedOrigins: [ORIGIN] });
-  t.after(() => upgraded.close());
+  upgraded = createApp({ dbPath: m2, now: () => START, adminToken: TOKEN, allowedOrigins: [ORIGIN] });
   const { port } = await upgraded.listen(0, '127.0.0.1');
   assert.deepEqual(await names(upgraded.store.db), [...v5, ...Object.keys(TABLES)].sort());
   // The cron at start cleared the frozen days; its next run finds nothing left to clear.
@@ -1741,6 +1758,7 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   const kpis = (await request(base, 'GET', '/v1/admin/kpis?from=2026-10-20&to=2026-10-20', { headers: { authorization: 'Bearer ' + TOKEN } })).json();
   assert.deepEqual([kpis.totals.sessions, kpis.totals.gameOpens, kpis.totals.engagedMinutes, kpis.games[0].sessions, kpis.games[0].opens], [7, 10, 3.8, 6, 8]);
   await upgraded.close();
+  upgraded = null;
 
   // Schema 2 (milestone 2 before kpi_cache): to 3, then to 5, at start.
   const older = path.join(dir, 'older.db');
@@ -1748,29 +1766,33 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   let db = openDatabase(older);
   await db.batch([db.prepare('DROP TABLE kpi_cache'), db.prepare("UPDATE meta SET value = 2 WHERE key = 'schema'")]);
   db.close();
-  const two = openStore(openDatabase(older));
+  two = openStore(openDatabase(older));
   assert.deepEqual([await two.setup(START), await two.setup(START), await two.setup(START)], ['migrated', 'migrated', 'ready']);
   assert.deepEqual(await names(two.db), [...v5, ...Object.keys(TABLES)].sort());
   two.close();
+  two = null;
 
   // A database of a newer server is refused, and left as it is.
   db = openDatabase(fresh);
   await db.prepare("UPDATE meta SET value = ?1 WHERE key = 'schema'").bind(SCHEMA_VERSION + 1).run();
   db.close();
-  const newer = createApp({ dbPath: fresh });
-  t.after(() => newer.close());
+  newer = createApp({ dbPath: fresh });
   await assert.rejects(newer.listen(0, '127.0.0.1'), new RegExp(`database schema ${SCHEMA_VERSION + 1} is newer than this server \\(${SCHEMA_VERSION}\\)`));
 });
 
 test('main.mjs starts from the environment without the SQLite warning and refuses bad settings', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-main-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const env = { PATH: process.env.PATH, PORT: '0', HOST: '127.0.0.1', DB_PATH: path.join(dir, 'sub', 't.db'),
     ALLOWED_ORIGINS: ORIGIN + ', null', ADMIN_TOKEN: TOKEN, RETENTION_DAYS: '30', RATE_PER_MIN: '600' };
   const child = spawn(process.execPath, [path.join(repo, 'main.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let stdout = '', stderr = '';
   child.stderr.on('data', d => { stderr += d; });
-  const exited = new Promise(resolve => child.on('exit', code => resolve(code)));
+  const exited = new Promise(resolve => child.on('close', (code, signal) => resolve({ code, signal })));
+  t.after(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+    await exited;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   const port = await new Promise((resolve, reject) => {
     child.stdout.on('data', d => { stdout += d; const m = /listening on port (\d+)/.exec(stdout); if (m) resolve(Number(m[1])); });
     child.on('exit', () => reject(new Error('main.mjs exited: ' + stderr)));
@@ -1782,7 +1804,9 @@ test('main.mjs starts from the environment without the SQLite warning and refuse
   } finally {
     child.kill('SIGTERM');
   }
-  assert.equal(await exited, 0);
+  const exit = await exited;
+  if (process.platform === 'win32') assert.equal(exit.signal, 'SIGTERM');
+  else assert.equal(exit.code, 0);
   assert.doesNotMatch(stderr, /ExperimentalWarning|SQLite/);
   assert.ok(fs.existsSync(env.DB_PATH));
   for (const [name, value, message] of [['ALLOWED_ORIGINS', ORIGIN + '/', /not an origin/], ['ALLOWED_ORIGINS', 'school.example', /not an origin/],

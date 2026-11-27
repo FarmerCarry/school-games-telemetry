@@ -303,9 +303,6 @@ const VISITS = factUpsert('st_visits', 'sid, n', VISIT,
 const ROUNDS = factUpsert('st_rounds', 'sid, n, k', ROUND, ROUND.filter(c => !['n', 'k', 'slug', 'id', 'duo'].includes(c)).map(first));
 // W8: marks (fv tu ct), on their natural key.
 const MARKS = `INSERT OR IGNORE INTO st_marks (sid, kind, t, n, x) SELECT ${SID}, value ->> 0, value ->> 1, value ->> 2, value ->> 3 FROM json_each(?2)`;
-// Times on the facts come from the session's stored start, never from this batch's
-// estimate, so a repeat (whose estimate moves with its receipt time) writes the same values.
-const START = 'SELECT start_s FROM st_sessions WHERE s = ?1';
 // W1: the PC; its zone, device buckets and build come from its newest session. Written by
 // the batch with the session's start (ss), which every portal sends.
 const newer = c => [c, `CASE WHEN excluded.last_s >= last_s THEN excluded.${c} ELSE ${c} END`];
@@ -709,8 +706,6 @@ const sumInto = (map, id, v) => {
   else for (let i = 0; i < v.length; i++) into[i] += v[i];
 };
 const vector = (v, at, columns) => columns.map(c => v[at[c]]);
-// The same with the indexes found once: pick(v, index(at, columns)).
-const index = (at, columns) => columns.map(c => at[c]);
 const pick = (v, indexes) => indexes.map(i => v[i]);
 const frames = (v, at) => {
   const counts = vector(v, at, F), all = counts.reduce((a, b) => a + b, 0);
@@ -1050,7 +1045,7 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
       // The vote, once a day: the zone most PCs report, locked once LOCK_PCS of them report it.
       const vote = row.vote ? JSON.parse(row.vote) : null;
       if (done.kind === 'first' && done.rolled === yesterday && vote && BY_VOTE.includes(',' + conf.tzSource + ',')) {
-        const change = [vote[0], vote[1] >= LOCK_PCS ? 'pcs' : 'pc', weekStartOf(vote[0]), BY_VOTE, '', '[]', ''];
+        const change = [vote[0], vote[1] >= LOCK_PCS ? 'pcs' : 'pc', weekStartOf(vote[0]), BY_VOTE, ''];
         statements.push(bound(ZONE_DIRTY, change), bound(ZONE, change));
         done.voted = { tz: vote[0], pcs: vote[1] };
       }
@@ -1440,7 +1435,7 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
   async function updateSettings({ tz, source, weekStart, keepDays: days }, now = Date.now()) {
     const current = await settings(now), statements = [];
     if (tz !== undefined) {
-      const change = source === 'dashboard' ? [tz, 'dashboard', weekStartOf(tz), BY_PC, '', '[]', ''] : [tz, 'owner', weekStartOf(tz), BY_OWNER, '', '[]', ''];
+      const change = source === 'dashboard' ? [tz, 'dashboard', weekStartOf(tz), BY_PC, ''] : [tz, 'owner', weekStartOf(tz), BY_OWNER, ''];
       statements.push(bound(ZONE_DIRTY, change), bound(ZONE, change));
     }
     // A new week start changes the weeks of every kept answer (the heatmaps' rows): rv goes up.

@@ -69,7 +69,6 @@ test('days and weeks follow the school\'s first weekday', () => {
   // 1-30 Oct 2026: 30 days from a Thursday; Thursday, Friday and Saturday occur 5 times.
   assert.deepEqual(R.weekdayCounts('2026-10-01', '2026-10-30'), [4, 4, 4, 4, 5, 5, 4]);
   assert.deepEqual(R.weekdayCounts('2026-10-02', '2026-10-01'), [0, 0, 0, 0, 0, 0, 0]);
-  assert.deepEqual(R.weeksEnding('2026-10-27', 3, 'sun'), ['2026-10-11', '2026-10-18', '2026-10-25']);
   assert.equal(R.schoolYearStart('2026-10-27'), '2026-08-01');
   assert.equal(R.schoolYearStart('2027-03-05'), '2026-08-01');
   assert.equal(R.schoolYearStart('2026-08-01'), '2026-08-01');
@@ -101,15 +100,7 @@ test('r_stat rows: sums per game, and measures that are null without their denom
   assert.deepEqual([all.n, all.w, all.l, all.hits, all.misses], [20, 8, 7, 48, 12]);
   assert.deepEqual(R.measure(all, 'winRate'), { value: 8 / 15, n: 15 });
   assert.deepEqual(R.measure(all, 'accuracy'), { value: 0.8, n: 60 });
-  assert.equal(R.measure(all, 'reaction').value, 6400 / 14);
-  assert.deepEqual(R.measure(all, 'quitRate'), { value: 2 / 17, n: 17 });
   assert.deepEqual(R.measure(R.total([]), 'winRate'), { value: null, n: 0 }, 'no rounds won or lost: no win rate, not 0');
-  assert.deepEqual(R.measuresOf(R.pick(rows, 'fatigue', { slug: 'road-hopper' })), ['accuracy', 'reaction', 'winRate']);
-  assert.deepEqual(R.measuresOf(R.pick(rows, 'fatigue', { slug: 'dino-3d' })), [], 'rounds only left: no measure');
-  // The time to win comes from the tier rows, the r_stat sums that keep the winning rounds' time.
-  const tiers = R.pick(rows, 'tier');
-  assert.deepEqual(R.measure(R.total(tiers), 'timeToWin'), { value: 15000, n: 6 });
-  assert.deepEqual(R.measuresOf(tiers), ['winRate', 'timeToWin']);
   // A curve over fatigue buckets, in bucket order.
   const curve = R.curve(rows, 'fatigue', 'winRate', { slug: 'road-hopper' });
   assert.deepEqual(curve.map(p => [p.k, p.n, p.rounds]), [[0, 13, 13], [5, 2, 4]]);
@@ -128,7 +119,6 @@ test('bucket labels and quantiles from a histogram', () => {
   for (const [metric, bounds] of Object.entries(SERVER_BUCKETS)) assert.deepEqual(R.BUCKETS[metric], bounds, metric);
   for (const metric of Object.keys(R.BUCKETS)) assert.ok(METRICS.includes(metric) && !DROPPED_METRICS.includes(metric), metric);
   assert.deepEqual(R.BUCKETS.games.map(k => R.bucketLabel('games', k)), ['1', '2', '3', '4', '5', '6–7', '8+']);
-  assert.deepEqual(R.BUCKETS.qrun.map(k => R.bucketLabel('qrun', k)), ['0', '1', '2', '3', '4', '5+']);
   assert.equal(R.bucketLabel('sesslen', 5), '5–10', 'minutes: from 5 up to 10');
   assert.equal(R.bucketLabel('tier', 9), '9+');
   const hist = R.histogram(R.statRows(stats([row('sesslen', '', '0', '3', { n: 10 }), row('sesslen', '', '5', '3', { n: 10 }),

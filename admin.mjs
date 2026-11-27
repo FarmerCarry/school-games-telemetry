@@ -43,6 +43,7 @@ const asArrays = (text, columns) => `SELECT json_group_array(json_array(${column
 const GAME_DAYS = src => asArrays(`SELECT x.day AS day, TOTAL(x.engaged_ms) AS ms, TOTAL(x.opens) AS opens FROM ${src.from} ` +
   `WHERE ${src.days} AND x.a IN ${A_LIST} AND x.slug = ?3 GROUP BY 1`, ['day', 'ms', 'opens']);
 const STAT_SUMS = ROLLUPS.r_stat.sums;
+const GAME_METRICS = METRICS.filter(m => !['hour', 'sesslen', 'games'].includes(m));
 const STAT_ROWS = (keys, where, sums = STAT_SUMS) => `SELECT json_group_array(json_array(${[...keys, ...sums].join(', ')})) AS rows FROM (` +
   `SELECT ${keys.map(c => c === 'k2' ? `${statK2('x')} AS k2` : `x.${c} AS ${c}`).join(', ')}, ${sums.map(c => `SUM(x.${c}) AS ${c}`).join(', ')} FROM r_stat x ` +
   `WHERE ${where} GROUP BY ${keys.map((_, i) => i + 1).join(', ')} ORDER BY ${keys.map((_, i) => i + 1).join(', ')})`;
@@ -130,7 +131,7 @@ export function adminViews(ctx) {
     await ensure(now);
     const period = spans(from, to, now), keys = partKeys(['game', slug, from, to], period.rolled, period.open, now, { raw: true });
     let { closed, open } = await kept(keys, now);
-    const metrics = json(METRICS), rolledDays = period.rolled ? json(dayList(...period.rolled)) : '[]';
+    const metrics = json(GAME_METRICS), rolledDays = period.rolled ? json(dayList(...period.rolled)) : '[]';
     // A part is the JSON text of its lists, made (and kept) by SQL, parsed when used.
     const work = [], made = [];
     const make = (scope, entry) => {

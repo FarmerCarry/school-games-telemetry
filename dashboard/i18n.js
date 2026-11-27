@@ -237,8 +237,7 @@
     byMinutes: 'Minutes',
     byOpens: 'Opens',
     byName: 'Name',
-    measureName: { accuracy: 'Accuracy', winRate: 'Won (of finished)', score: 'Average score', reaction: 'Reaction time', timeToWin: 'Time to win',
-      dda: 'Difficulty level', tier: 'Tier', quitRate: 'Left unfinished', inputsPerMinute: 'Actions per minute' },
+    measureName: { accuracy: 'Accuracy', winRate: 'Won (of finished)' },
     bucketTitle: {
       fatigue: function (a) { return a + ' minutes into the session'; },
       sesslen: function (a) { return a + ' minutes'; },
@@ -685,8 +684,7 @@
     byMinutes: 'الدقائق',
     byOpens: 'مرات الفتح',
     byName: 'الاسم',
-    measureName: { accuracy: 'الدقة', winRate: 'الفوز (من المنتهية)', score: 'متوسط النتيجة', reaction: 'زمن الاستجابة', timeToWin: 'الوقت حتى الفوز',
-      dda: 'مستوى الصعوبة', tier: 'الدرجة', quitRate: 'تُركت دون إكمال', inputsPerMinute: 'الحركات في الدقيقة' },
+    measureName: { accuracy: 'الدقة', winRate: 'الفوز (من المنتهية)' },
     bucketTitle: {
       fatigue: function (a) { return 'بعد ' + iso(a) + ' دقيقة من بدء الجلسة'; },
       sesslen: function (a) { return iso(a) + ' دقيقة'; },

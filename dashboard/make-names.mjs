@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 /*
- * Writes dashboard/names.js, the game names the dashboard shows when the
- * games site does not publish js/catalog.js on its own (the fast build inlines the
- * catalog into its pages, so the published site answers 404 for it), with each game's
+ * Writes dashboard/names.js, the bundled game names the dashboard shows, with each game's
  * categories, players and input style (SG_GAME_INFO, with whether the game's own code
  * adapts its difficulty with Kit.dda, counts hits and reaction times with Kit.track and
  * shows a tutorial with Kit.stats.tutorial) and the category names (SG_CATEGORIES: the
@@ -61,7 +59,6 @@ export function namesSource(catalogText = fs.readFileSync(CATALOG, 'utf8')) {
     return '  ' + JSON.stringify(c.id) + ': ' + JSON.stringify([c.label, CATEGORY_EN[c.id]]);
   });
   return '// Game names from the games site\'s js/catalog.js, written by make-names.mjs (do not edit).\n' +
-    '// The dashboard prefers the live site\'s catalog and falls back to these names.\n' +
     'window.SG_GAME_NAMES = {\n' + lines.join(',\n') + '\n};\n' +
     '// Each game\'s categories, the most players at once and its input style (js/catalog.js);\n' +
     '// dda, track, tutorial: its code adapts the difficulty to each child, counts hits and\n' +

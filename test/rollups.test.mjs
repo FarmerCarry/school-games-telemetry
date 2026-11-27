@@ -247,8 +247,6 @@ async function oracle(db, zone, day) {
       return st;
     };
     for (const v of vs) if (v.t_open !== null) stat('hour', '', hour(s.start_s + v.t_open), weekday(s.start_s + v.t_open), { n: 1, ms: v.engaged_ms });
-    for (const x of rs) if (x.t0 !== null) stat('rhour', '', hour(s.start_s + x.t0), weekday(s.start_s + x.t0),
-      { n: 1, w: x.code === 'w', l: x.code === 'l', q: x.code === 'q', hits: x.hits, misses: x.misses, rt_sum: x.rt_sum, rt_n: x.rt_n });
     stat('sesslen', '', bucket(engaged, BUCKETS.sesslen, 60000), s.wire === 2 ? '2' : '3', { n: 1, ms: engaged });
     const opened = new Set(vs.filter(v => v.t_open !== null).map(v => v.slug)).size;
     if (opened) stat('games', '', opened >= 8 ? '8' : opened >= 6 ? '6' : String(opened), '', { n: 1 });
@@ -258,9 +256,6 @@ async function oracle(db, zone, day) {
       const before = vs.find(x => x.n === v.n - 1), gap = before && before.t_close !== null && v.t_open !== null;
       stat('flow', before ? before.slug : '', v.slug, '', { n: 1, gap_sum: gap ? Math.max(v.t_open - before.t_close, 0) : 0, gap_n: gap ? 1 : 0 });
       if (!vs.some(x => x.n === v.n + 1)) stat('flow', v.slug, '', '', { n: 1 });
-      const tu = x => ks.some(k => k.kind === 'tu' && k.n === v.n && k.x === x);
-      const firstEnded = rs.filter(x => x.n === v.n && x.code !== null).sort((x, y) => x.k - y.k)[0];
-      stat('tutorial', v.slug, tu('d') ? 'done' : tu('s') ? 'start' : 'none', firstEnded ? firstEnded.code : '', { n: 1 });
     }
     for (const x of rs) {
       const ended = x.code !== null;
@@ -271,11 +266,6 @@ async function oracle(db, zone, day) {
         stat('persist', x.slug, x.code, k2, { n: 1, gap_sum: gap ? Math.max(next.t0 - x.t, 0) : 0, gap_n: gap ? 1 : 0 });
         stat('fatigue', x.slug, bucket(x.t0 ?? x.t, BUCKETS.fatigue, 60), '', { n: 1, w: x.code === 'w', l: x.code === 'l', q: x.code === 'q', hits: x.hits,
           misses: x.misses, rt_sum: x.rt_sum, rt_n: x.rt_n, inputs: x.inputs, ms: x.ms });
-        const later = rs.some(y => y.n === x.n && y.k > x.k);
-        if (x.code === 'q' || !later) {
-          const earlier = rs.filter(y => y.n === x.n && y.k < x.k), wall = Math.max(0, ...earlier.filter(y => y.code !== 'l').map(y => y.k));
-          stat('qrun', x.slug, String(Math.min(earlier.filter(y => y.code === 'l' && y.k > wall).length, 5)), x.code === 'q' ? 'q' : 'x', { n: 1 });
-        }
       }
       if (ended && x.tier0 > 0) stat('tier', x.slug, String(x.tier0), '', { n: 1, w: x.code === 'w', l: x.code === 'l', q: x.code === 'q', ms: x.ms,
         win_ms: x.code === 'w' ? x.ms : 0 });

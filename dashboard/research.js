@@ -11,10 +11,8 @@
  *   weeks       start on settings.clock.weekStart ('sun' or 'mon'); a week is named by
  *               the day it starts.
  *   stats       r_stat rows grouped over a range: { columns, rows: [[...]] }.
- *   measures    win rate = w / (w + l); accuracy = hits / (hits + misses); reaction time
- *               = rt_sum / rt_n ms; score = score_sum / score_n; time to win =
- *               win_ms / w; DDA level = dda_sum / dda_n permille; tier = tier_sum /
- *               tier_n. A measure without its denominator is null, never 0.
+ *   measures    win rate = w / (w + l); accuracy = hits / (hits + misses).
+ *               A measure without its denominator is null, never 0.
  *   small       fewer than SMALL.tries tries: the number is shown with a "based on 12
  *               tries" chip (insights.js uses the same rule).
  */
@@ -34,7 +32,6 @@
     games: [1, 2, 3, 4, 5, 6, 8],                            // games opened per session (6 = 6-7, 8 = 8+)
     visitlen: [0, 10, 30, 60, 120, 300, 600, 1200],          // engaged seconds per visit
     fatigue: [0, 5, 10, 15, 20, 30, 45],                     // minutes into the session
-    qrun: [0, 1, 2, 3, 4, 5],                                // losses in a row before (5 = 5+)
     tier: [1, 2, 3, 4, 5, 6, 7, 8, 9]
   });
   const PERSIST = ['same', 'level', 'game', 'stop'];
@@ -73,11 +70,6 @@
     const n = daysBetween(from, to) + 1, w0 = weekdayOf(from);
     for (let i = 0; i < 7; i++) out[(w0 + i) % 7] = Math.floor(n / 7) + (i < n % 7 ? 1 : 0);
     return out;
-  }
-  // The n weeks ending with the week of `to`, oldest first.
-  function weeksEnding(to, n, weekStart) {
-    const last = weekOf(to, weekStart);
-    return Array.from({ length: n }, (_, i) => shift(last, (i - n + 1) * 7));
   }
   // "This school year": from the latest 1 August on or before today.
   function schoolYearStart(today) {
@@ -125,38 +117,16 @@
 
   // ---- measures -------------------------------------------------------------------------
   // Each measure from a summed row: { value, n } where n is its denominator (the tries
-  // or answers it rests on). value is a share 0..1, milliseconds, a score or a level.
+  // or answers it rests on). value is a share 0..1.
   const MEASURES = Object.freeze({
     winRate: r => ({ value: div(r.w, r.w + r.l), n: r.w + r.l }),
-    accuracy: r => ({ value: div(r.hits, r.hits + r.misses), n: r.hits + r.misses }),
-    reaction: r => ({ value: div(r.rt_sum, r.rt_n), n: r.rt_n }),
-    score: r => ({ value: div(r.score_sum, r.score_n), n: r.score_n }),
-    timeToWin: r => ({ value: div(r.win_ms, r.w), n: r.w }),
-    dda: r => ({ value: div(r.dda_sum, r.dda_n), n: r.dda_n }),
-    tier: r => ({ value: div(r.tier_sum, r.tier_n), n: r.tier_n }),
-    quitRate: r => ({ value: div(r.q, r.w + r.l + r.d + r.e + r.q), n: r.w + r.l + r.d + r.e + r.q }),
-    inputsPerMinute: r => ({ value: r.ms ? r.inputs / (r.ms / 60000) : null, n: r.ms ? r.inputs : 0 })
+    accuracy: r => ({ value: div(r.hits, r.hits + r.misses), n: r.hits + r.misses })
   });
-  // Lower is better for these.
-  const LOWER_BETTER = new Set(['reaction', 'timeToWin', 'quitRate']);
   function measure(row, name) {
     const f = MEASURES[name];
     if (!f || !row) return { value: null, n: 0 };
     const m = f(row);
     return { value: m.value === null || !Number.isFinite(m.value) ? null : m.value, n: m.n || 0 };
-  }
-  // The measures a game reports, from its rows: accuracy and reaction time where Kit
-  // counts hits and reactions, the score where the game passes one, the DDA level in the
-  // adaptive games, the win rate where rounds are won or lost.
-  function measuresOf(rows) {
-    const t = total(rows), out = [];
-    if (t.hits + t.misses > 0) out.push('accuracy');
-    if (t.rt_n > 0) out.push('reaction');
-    if (t.w + t.l > 0) out.push('winRate');
-    if (t.score_n > 0) out.push('score');
-    if (t.dda_n > 0) out.push('dda');
-    if (t.w > 0 && t.win_ms > 0) out.push('timeToWin');
-    return out;
   }
 
   // A curve over a bucketed key (fatigue, tier): one point per bucket, in bucket order,
@@ -182,7 +152,7 @@
   // Quantile q (0..1) of a bucketed distribution, linear inside the bucket. The last
   // bucket has no upper bound: a quantile that falls in it is its lower bound, and
   // `open` says so ("45 minutes or more"). With a metric that counts (games per session,
-  // losses in a row, tiers: not minutes or seconds), the bucket that holds the
+  // tiers: not minutes or seconds), the bucket that holds the
   // quantile instead, with its label ("3", "6–7"): a session never opens 3.7 games.
   function quantile(hist, q, metric) {
     const counts = list(hist).map(h => num(h.n) || 0), totalN = counts.reduce((a, b) => a + b, 0);
@@ -294,9 +264,9 @@
   }
 
   return Object.freeze({
-    SMALL, BUCKETS, PERSIST, MEASURES: Object.keys(MEASURES), LOWER_BETTER: [...LOWER_BETTER], PC_FLAGS, bucketLabel,
-    isDay, shift, weekdayOf, daysBetween, weekOf, weekdays, weekdayCounts, weeksEnding, schoolYearStart,
-    small, statRows, pick, sumBy, total, measure, measuresOf, curve, histogram, quantile, weekHours, activeHours,
+    SMALL, BUCKETS, PERSIST, MEASURES: Object.keys(MEASURES), PC_FLAGS, bucketLabel,
+    isDay, shift, weekdayOf, daysBetween, weekOf, weekdays, weekdayCounts, schoolYearStart,
+    small, statRows, pick, sumBy, total, measure, curve, histogram, quantile, weekHours, activeHours,
     persist, retryByGame, flows, categories, pcRows
   });
 }));

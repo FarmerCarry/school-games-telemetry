@@ -4,12 +4,11 @@
  * validate_palette.js against the card surface in each mode (light #fcfcfb, dark
  * #1a1a19). Series: s1 blue (every single-series chart, "won"), s2 orange ("lost"),
  * s3 aqua ("left unfinished"). Status colours are only for the difficulty verdicts
- * and PC-health flags, always with an icon and a label. Age groups are never s1-s3:
- * they are small multiples in s1. Two blue ramps from the reference palette, validated
- * with validate_palette.js --ordinal in each mode: q1..q5 sequential (heatmaps,
- * the calendar; dark mode runs from the surface up) and o1..o4 ordinal (ordered parts of
- * a whole: same level, another level, another game, stopped; returning and new). A cell
- * label sits on its own step: dark ink on the light steps, white on the dark ones.
+ * and PC-health flags, always with an icon and a label. Two blue ramps from the
+ * reference palette, validated with validate_palette.js --ordinal in each mode:
+ * q1..q5 sequential (heatmaps; dark mode runs from the surface up) and o1..o4 ordinal
+ * (ordered parts of a whole: same level, another level, another game, stopped; returning
+ * and new). A cell label sits on its own step: dark ink on the light steps, white on the dark ones.
  */
 :root {
   color-scheme: light;
@@ -275,7 +274,6 @@ main { padding-bottom: 48px; }
   font: 14px/1.4 var(--font); padding: 5px 8px; border-radius: 8px; border: 1px solid var(--border-strong);
   background: var(--surface); color: var(--ink); max-width: 100%;
 }
-.more-note { font-size: 12.5px; margin-top: 2px; }
 
 /* ---- insights --------------------------------------------------------------------------- */
 .note.cutover { border-inline-start: 3px solid var(--border-strong); padding-inline-start: 10px; }
@@ -440,17 +438,11 @@ td.flags { white-space: normal; }
 .grid-wide { grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1040px) { .grid-wide { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
 
-/* ---- columns, sparkline, dumbbell, stacked rows ------------------------------------------------------- */
+/* ---- columns, stacked rows --------------------------------------------------------------------------- */
 .cols .mark { outline: none; }
 .cols .col-hit { fill: transparent; }
 .cols .mark.is-hover .col-hit { fill: var(--hover); }
 .cols .mark.is-hover .bar { filter: brightness(1.08); }
-.spark { display: block; overflow: visible; }
-.spark .line { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
-.spark .baseline { stroke: var(--axis); stroke-width: 1; }
-.dumbbell .db-line { stroke-width: 2; stroke-linecap: round; }
-.dumbbell .db-before { fill: var(--surface); stroke-width: 2; }
-.dumbbell .db-after { stroke: var(--surface); stroke-width: 2; }
 .stack-rows { display: grid; gap: 2px; }
 .stack-row { display: grid; grid-template-columns: minmax(110px, 0.9fr) minmax(120px, 2fr) auto; align-items: center; gap: 12px; padding: 7px 6px; border-radius: 6px; outline: none; }
 .stack-row.is-hover { background: var(--hover); }
@@ -459,7 +451,6 @@ td.flags { white-space: normal; }
 .stack-label.is-small { color: var(--ink-2); }
 .stack-value { font-size: 12.5px; color: var(--ink-2); white-space: nowrap; }
 .stack-row .stack-host svg { width: 100%; }
-.plot { min-width: 0; }
 
 /* ---- heatmap (HTML cells on the sequential ramp) ------------------------------------------------------- */
 .heatmap { overflow-x: auto; padding-bottom: 2px; }
@@ -479,8 +470,6 @@ td.flags { white-space: normal; }
 .hm-cell.q5 { background: var(--q5); color: var(--q-ink-high); }
 .hm-cell.is-hover { box-shadow: 0 0 0 2px var(--ink); }
 .hm-cell:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-.calendar .hm-cell { min-height: 12px; border-radius: 2px; }
-.calendar .hm-grid { font-size: 11px; }
 .hm-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; font-size: 12.5px; color: var(--ink-2); }
 .hm-ramp { display: inline-flex; gap: 2px; }
 .hm-swatch { display: inline-block; width: 16px; height: 10px; border-radius: 2px; }

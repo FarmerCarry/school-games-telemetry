@@ -25,7 +25,7 @@ a web browser. Everything below is free.
 
 1. **Click this button:**
 
-   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/FarmerCarry/school-games/tree/main/server)
+   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/FarmerCarry/school-games-telemetry)
 
 2. **Sign up or sign in to Cloudflare.** If you have no Cloudflare account, choose
    *Sign up*, type your email address and a password of your choice, and open the
@@ -104,7 +104,7 @@ Global Privacy Control never send anything.
 | `export.mjs` | The research export: each file's pinned columns (`COLUMNS`) and its pages of CSV lines, built in SQL. |
 | `rollups.mjs` | The daily rollups of the facts by the school's local day, and milestone 2's frozen daily totals: their tables, and for each rollup the one SQL `SELECT` that defines it. |
 | `schema.mjs` | Validation of the envelope (wire versions 2 and 3) and every event kind; cleans and clamps, drops a game that is not in `games.mjs`, and reads past the fields and events of older portals' accounts (never returned, so never stored). |
-| `games.mjs` | The 53 game slugs the site may report, in alphabetical order (matching the site's `js/catalog.js`). Add a line here and regenerate `dashboard/names.js` (`node dashboard/make-names.mjs`) when a game is added to the site; until then that game's events are ignored. |
+| `games.mjs` | The 58 game slugs the site may report, in alphabetical order (matching the site's `js/catalog.js`). Add a line here and regenerate `dashboard/names.js` (`node dashboard/make-names.mjs`) when a game is added to the site; until then that game's events are ignored. |
 | `clock.mjs` | The school's clock: UTC offsets, local days and the exact bounds of a local day in an IANA zone, from `Intl` alone. |
 | `sqlite-d1.mjs` | A D1-style driver over Node's built-in `node:sqlite`, for the Node host and the tests. |
 | `app.mjs`, `main.mjs` | The Node host: `node:http` in front of the handler, settings from the environment, a purge every 24 hours, the rollups every 5 minutes. |
@@ -429,29 +429,6 @@ any other `4xx` answer than `429` is final.
 replace the folder and start it again: the Node host upgrades the database at start,
 and its 5-minute timer clears the rest. Going back means that backup.
 
-### Measuring the batch rate first (Step 0)
-
-Before the first update to milestone 2.5, with milestone 2's server still running, open
-the D1 console (Cloudflare → *Storage & databases* → *D1* → `school-games-telemetry` →
-*Console*) and run, one at a time:
-
-```sql
-SELECT day, COUNT(*) FROM batches GROUP BY day ORDER BY day DESC LIMIT 14;
-SELECT day, SUM(sessions) FROM agg_days GROUP BY day ORDER BY day DESC LIMIT 14;
-```
-
-Divide each school day's batches by its sessions and record the ratio below. If it is
-above 16, the portal's default batch timer for wire version 3 goes from 60 to 90 seconds
-([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), §B.6), before that version is published.
-
-| Measured on | School days | Batches per session (portal on wire version 2, 20 s timer) |
-|---|---|---|
-| not measured yet (needs the Cloudflare account) | | |
-
-For comparison, the simulated school (`simulate.mjs`) sends 15.4 batches per version 2
-session (20 s timer) and 11.3 per version 3 session (60 s timer, and one when a game
-closes).
-
 ## API
 
 Every API response (paths under `/v1/`) has `Vary: Origin`, `Cache-Control: no-store`,
@@ -530,9 +507,9 @@ Slugs match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (at most 40 characters) and must be lis
 `games.mjs`; any other slug is dropped with its event. Round ids match
 `^[A-Za-z][A-Za-z0-9_:.-]{0,23}$` without three digits in a row. Neither may be a
 built-in object key such as `constructor`. Enumerations, flags, buckets and tiers must
-be exact integers. Measured numbers (`t`, ms, counts, scores, levels, histogram
+be exact integers. Measured numbers (`t`, ms, counts, scores, histogram
 entries) must be finite and not negative; they are rounded and clamped to: `t` 7 days
-in seconds, level 999, load 120,000 ms, replay index 9,999, round 3 h, score 10⁹,
+in seconds, load 120,000 ms, replay index 9,999, round 3 h, score 10⁹,
 hits/misses/`rt`/`il` entries 100,000, each frame bucket 10⁷, game visit 6 h, session 24 h.
 
 ### `OPTIONS *`
@@ -806,10 +783,11 @@ last night); `daily` also today.
 
 The research metrics of `r_stat`, summed over the rolled days of the period (up to
 `range.rolledThrough`), for every game or the game `slug`. `metrics` is a comma-separated
-subset of `hour, rhour, sesslen, games, visitlen, flow, persist, fatigue, qrun, tier,
-tutorial` ([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), §D.2, gives each one's keys `k1` and `k2`;
+subset of `hour, sesslen, games, visitlen, flow, persist, fatigue, tier`
+([M2.5 spec](https://github.com/FarmerCarry/school-games/blob/e10a143c4eb9687a9521a2a09bb7a26797606643/docs/RESEARCH_TELEMETRY_SPEC.md), §D.2, gives each one's keys `k1` and `k2`;
 `sesslen`'s `k2` is the wire version, `3` or `2`); the answer lists them in that order.
-Schema 4's per-student metrics (`daymin`, `attempt`, `tenure`) are gone: asking for one
+Schema 4's per-student metrics (`daymin`, `attempt`, `tenure`) and unrendered metrics
+(`rhour`, `qrun`, `tutorial`) are gone: asking for one
 is `400 {"error": "metrics"}`. Rows are sorted by their keys. `columns` holds the keys and
 only the sums the asked metrics have (every other sum is always 0 in their rows), in the
 order below; read a value by its column's name.
@@ -996,7 +974,7 @@ without its per-student tables):
 | `st_visits`, `st_rounds`, `st_marks` | Game visits `(session, n)`, rounds `(session, n, k)` with their outcome, tier, score, hits, misses, reaction times and extras and the two-player flag (schema 4's `attempt` stays, always `NULL`), and marks (hearts, tutorial steps, the classroom timer). |
 | `st_pcs` | Per PC code: first and last play, zone, buckets, build. |
 | `settings`, `usage`, `roll_days` | The school's zone and where it came from (and `tz_epoch`, raised with each change), the week start, the retention the owner chose, `facts_since`, `legacy_until`, `v3_since`, the rollup version `rv`, `rolled_through`, `trimmed_before`, and the cron's bookkeeping (`rebuild`: days may wait for a full rebuild or a recount; `trimmed_size` and `trim_to`: the storage guard's trim; `scrub`, `scrub_id`, `scrub_end` and `scrub_day`: how far the upgrade's clearing is); D1 rows read, written and read by rebuilds per UTC day, and the database size (each instance adds its counts once a minute, and each cron run its own); which local days are rolled up, whether late data (`dirty` 1), a new zone (2) or a recount (3) waits for them, when each was rolled and the rows its rollups took (`rows`, which a re-roll is estimated from). |
-| `r_day`, `r_game_day`, `r_level_day`, `r_source_day`, `r_device_day`, `r_pc_day`, `r_stat` | Per-day rollups of the facts by the school's local day: milestone 2's daily totals with two-player rounds, hearts, tutorials and session endings; per game, level, launch source, device bucket and PC; and `r_stat`, the research metrics (hour of play, session length, games per session, visit length, game-to-game flows, what follows a round, tiredness, losses before quitting, tier, tutorials) per day and game. Their key column `a` (schema 4's age band) is always `''`, and their schema 4 count columns of students, guests, new profiles, linked minutes and profiles per PC are always `0`. |
+| `r_day`, `r_game_day`, `r_level_day`, `r_source_day`, `r_device_day`, `r_pc_day`, `r_stat` | Per-day rollups of the facts by the school's local day: milestone 2's daily totals with two-player rounds, hearts, tutorials and session endings; per game, level, launch source, device bucket and PC; and `r_stat`, the research metrics (hour of play, session length, games per session, visit length, game-to-game flows, what follows a round, tiredness, tier) per day and game. Their key column `a` (schema 4's age band) is always `''`, and their schema 4 count columns of students, guests, new profiles, linked minutes and profiles per PC are always `0`. |
 | `live`, `batches`, `kpi_cache`, `meta` | Sessions in the 5-minute live window (with the PC code and wire version); v2 batch ids for de-duplication; kept parts of admin answers, with the rollup version they were made with; the schema version. |
 | `agg_days`, `agg_games`, `agg_levels`, `agg_sources`, `agg_devices` | Only on a database milestone 2 used: its daily totals per UTC receipt day, frozen. |
 

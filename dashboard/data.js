@@ -199,7 +199,7 @@
 
   // ---- the data dictionary ------------------------------------------------------------------
   function dictionary(ctx, parent) {
-    var T = ctx.t(), h = ctx.h, C = ctx.C, D = window.SGDictionary, ar = ctx.lang() === 'ar';
+    var T = ctx.t(), h = ctx.h, D = window.SGDictionary, ar = ctx.lang() === 'ar';
     var sec = ctx.section(parent, 'dictionary', T.dictTitle, T.dictIntro);
     var box = h('div', { class: 'card', id: 'dictionary-card' }, sec);
     var files = D.FILES.map(function (f) { return f.file; });

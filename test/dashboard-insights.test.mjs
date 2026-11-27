@@ -235,7 +235,7 @@ test('a game is called the slowest to open only when no shown game is slower', (
 
 test('names.js carries every catalog game\'s names (rebuild: node dashboard/make-names.mjs)', needsSite, async () => {
   const { namesSource } = await import('../dashboard/make-names.mjs');
-  assert.equal(fs.readFileSync(path.join(dashboard, 'names.js'), 'utf8'), namesSource(), 'names.js is out of date: run node dashboard/make-names.mjs');
+  assert.equal(fs.readFileSync(path.join(dashboard, 'names.js'), 'utf8').replace(/\r\n/g, '\n'), namesSource(), 'names.js is out of date: run node dashboard/make-names.mjs');
   const names = loadScripts('names.js').SG_GAME_NAMES;
   const site = {};
   vm.runInNewContext(fs.readFileSync(path.join(SITE, 'js/catalog.js'), 'utf8'), { window: site });
@@ -487,7 +487,7 @@ test('demo/ is the server\'s own answers (rebuild: node dashboard/make-demo.mjs)
   assert.deepEqual(files, Object.keys(made).sort(), 'the files make-demo.mjs writes, and no other');
   assert.equal(fs.existsSync(path.join(dashboard, 'demo.json')), false, 'demo/ replaces demo.json');
   for (const f of files) {
-    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    const text = fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n');
     const same = f.endsWith('.json') ? isDeepStrictEqual(settled(f, text), settled(f, made[f])) : text === made[f];
     assert.ok(same, 'demo/' + f + ' is not what the server answers now: run node dashboard/make-demo.mjs');
   }
