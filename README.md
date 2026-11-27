@@ -104,7 +104,7 @@ Global Privacy Control never send anything.
 | `export.mjs` | The research export: each file's pinned columns (`COLUMNS`) and its pages of CSV lines, built in SQL. |
 | `rollups.mjs` | The daily rollups of the facts by the school's local day, and milestone 2's frozen daily totals: their tables, and for each rollup the one SQL `SELECT` that defines it. |
 | `schema.mjs` | Validation of the envelope (wire versions 2 and 3) and every event kind; cleans and clamps, drops a game that is not in `games.mjs`, and reads past the fields and events of older portals' accounts (never returned, so never stored). |
-| `games.mjs` | The 52 game slugs the site may report, in alphabetical order (matching the site's `js/catalog.js`). Add a line here and regenerate `dashboard/names.js` (`node dashboard/make-names.mjs`) when a game is added to the site; until then that game's events are ignored. |
+| `games.mjs` | The 53 game slugs the site may report, in alphabetical order (matching the site's `js/catalog.js`). Add a line here and regenerate `dashboard/names.js` (`node dashboard/make-names.mjs`) when a game is added to the site; until then that game's events are ignored. |
 | `clock.mjs` | The school's clock: UTC offsets, local days and the exact bounds of a local day in an IANA zone, from `Intl` alone. |
 | `sqlite-d1.mjs` | A D1-style driver over Node's built-in `node:sqlite`, for the Node host and the tests. |
 | `app.mjs`, `main.mjs` | The Node host: `node:http` in front of the handler, settings from the environment, a purge every 24 hours, the rollups every 5 minutes. |

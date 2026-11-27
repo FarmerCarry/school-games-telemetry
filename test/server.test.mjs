@@ -697,7 +697,7 @@ test('CORS echoes only listed origins, never with credentials, and null only whe
 test('a batch must name the site, and a game that is not in the catalog is not stored', async t => {
   const { isGameSlug } = await import('../schema.mjs');
   const { GAME_SLUGS } = await import('../games.mjs');
-  assert.equal(GAME_SLUGS.length, 52);
+  assert.equal(GAME_SLUGS.length, 53);
   assert.deepEqual(GAME_SLUGS, [...GAME_SLUGS].sort());
   assert.equal(new Set(GAME_SLUGS).size, GAME_SLUGS.length);
   for (const slug of ['bubble-bop', 'road-hopper', 'splat-catapult', 'recess-kitchen', 'desk-karts', 'toy-castle', 'magic-crayon', 'juicy-drop', 'robo-swarm', 'balloon-blast']) {

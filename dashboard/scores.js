@@ -1,7 +1,7 @@
 // What the score means in each game that passes one to Kit.stats.end(result, score):
 // [Arabic, English], each completing «النتيجة هنا هي …» / "The score here is …".
 // Written by hand from the games' own code; a score is only comparable within one game.
-// All 47 single-player score-reporting games are listed (all 52 except critter-mart,
+// All 48 single-player score-reporting games are listed (all 53 except critter-mart,
 // pizza-clicker, tank-splat, connect-four and tic-tac-toe).
 window.SG_SCORES = {
   'air-hockey': ['أهداف الطفل في المباراة', 'the child’s goals in the match'],
@@ -50,5 +50,6 @@ window.SG_SCORES = {
   'tunnel-blitz': ['نقاط الجولة', 'the points of the run'],
   'typing-test': ['سرعة الكتابة بالكلمات في الدقيقة', 'the typing speed, in words per minute'],
   'wacky-soccer': ['أهداف الطفل في المباراة', 'the child’s goals in the match'],
-  'word-garden': ['نجوم الحديقة المنتهية (من 1 إلى 3)', 'the stars of a finished garden (1 to 3)']
+  'word-garden': ['نجوم الحديقة المنتهية (من 1 إلى 3)', 'the stars of a finished garden (1 to 3)'],
+  'zoom-plus-one': ['رقم المرحلة التي قفز فوقها الطفل أو سقط فيها في بحر الجيلي', 'the number of the stage the child flew over, or fell short of, into the jelly']
 };
