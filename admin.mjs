@@ -10,8 +10,8 @@
 import { A_KEYS, METRICS, METRIC_SUMS, ROLLUPS, rollupSelect, statK2 } from './rollups.mjs';
 
 const DAY_MS = 86400000;
-// A PC is choppy under 80% smooth frames (as the dashboard's insights say).
-const CHOPPY = 0.8;
+// A PC is choppy under 90% smooth frames (as the dashboard's insights say).
+const CHOPPY = 0.9;
 
 const utcDay = ms => new Date(ms).toISOString().slice(0, 10);
 const addDays = (day, n) => utcDay(Date.parse(day + 'T00:00:00Z') + n * DAY_MS);

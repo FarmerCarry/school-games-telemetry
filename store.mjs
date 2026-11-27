@@ -43,7 +43,7 @@ export const USAGE_DAYS = 60;
 // least ROLLUP_DAYS.
 export const RETENTION_DAYS = 400;
 export const ROLLUP_DAYS = 800;
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 // The free plan's daily limits (rows read and written, reset at 00:00 UTC) and size.
 export const LIMITS = { reads: 5000000, writes: 100000, bytes: 500000000 };
 // The guards (§D.8): above these, exports and then admin reads answer 429, admin actions
@@ -155,11 +155,23 @@ const FACTS = [
 ];
 const LIVE_5 = 'CREATE TABLE IF NOT EXISTS live (s TEXT PRIMARY KEY, slug TEXT NOT NULL, seen_minute INTEGER NOT NULL, ' +
   "p TEXT NOT NULL DEFAULT '', wire INTEGER NOT NULL DEFAULT 2) STRICT, WITHOUT ROWID";
-const ROLLUP_SCHEMA = Object.entries(ROLLUPS).map(([table, { key, text = [], sums, cleared = [] }]) =>
+const ROLLUP_DDL = Object.fromEntries(Object.entries(ROLLUPS).map(([table, { key, text = [], sums, cleared = [] }]) => [table,
   `CREATE TABLE IF NOT EXISTS ${table} (` + key.map(([c, type]) => `${c} ${type} NOT NULL, `).join('') +
     text.map(c => `${c} TEXT NOT NULL DEFAULT '', `).join('') + [...sums, ...cleared].map(c => `${c} INTEGER NOT NULL DEFAULT 0, `).join('') +
-    `PRIMARY KEY (${key.map(([c]) => c).join(', ')})) STRICT, WITHOUT ROWID`);
+    `PRIMARY KEY (${key.map(([c]) => c).join(', ')})) STRICT, WITHOUT ROWID`]));
+const ROLLUP_SCHEMA = Object.values(ROLLUP_DDL);
 const SCHEMA_5 = [...FACTS, ...ROLLUP_SCHEMA];
+// Safe additive schema-6 columns (metadata-only ALTER TABLE ... DEFAULT 0: zero row rewrites on live D1).
+const SCHEMA_6_COLUMNS = {
+  r_game_day: ['org_opens', 'org_engaged_ms', 'org_b25', 'org_s2m'],
+  r_source_day: ['engaged_ms', 'bounces_25s']
+};
+// Marks rolled days since facts_since (not trimmed) for an incremental diff recount (dirty = 3),
+// so historical days automatically backfill the new schema-6 columns and fixed visitlen stats.
+const MIGRATE_6_MARK = [
+  "UPDATE roll_days SET dirty = 3 WHERE day >= (SELECT MAX(value) FROM settings WHERE key IN ('facts_since', 'trimmed_before')) AND dirty < 2",
+  "INSERT INTO settings (key, value) VALUES ('rebuild', '1') ON CONFLICT (key) DO UPDATE SET value = excluded.value"
+];
 // The settings of a new schema 5 (TEXT values): the school's zone is unknown until a PC or
 // the dashboard reports one; facts_since is the first day of the facts and legacy_until
 // the last day of the frozen aggregates ('' when there are none). The other keys are the
@@ -604,9 +616,10 @@ const KEEP_DAYS = "UPDATE settings SET value = ?1 WHERE key = 'keep_days'";
 const KPI = {
   days: { table: 'agg_days', rollup: 'r_day', keys: ['day', 'part'], sums: [...TABLES.agg_days.sums, 'v2_sessions', 'clock_r', 'unclosed', 'why_i'] },
   games: { table: 'agg_games', rollup: 'r_game_day', keys: ['slug'],
-    sums: [...TABLES.agg_games.sums, 'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'wall_s', 'inputs', 'score_sum', 'score_n', 'unended', 'duo'] },
+    sums: [...TABLES.agg_games.sums, 'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'wall_s', 'inputs', 'score_sum', 'score_n', 'unended', 'duo',
+      'org_opens', 'org_engaged_ms', 'org_b25', 'org_s2m'] },
   levels: { table: 'agg_levels', rollup: 'r_level_day', keys: ['slug', 'id'], sums: [...TABLES.agg_levels.sums, 'score_sum', 'score_n', 'unended'] },
-  sources: { table: 'agg_sources', rollup: 'r_source_day', keys: ['src'], sums: TABLES.agg_sources.sums },
+  sources: { table: 'agg_sources', rollup: 'r_source_day', keys: ['src'], sums: [...TABLES.agg_sources.sums, 'engaged_ms', 'bounces_25s'] },
   devices: { table: 'agg_devices', rollup: 'r_device_day', keys: ['cores', 'mem', 'screen'], sums: TABLES.agg_devices.sums }
 };
 const GROUPS = Object.keys(KPI);
@@ -642,27 +655,50 @@ function mergedGroup(name, scope) {
   return asRows(`SELECT ${keys.join(', ')}, ${sums.map(c => `CAST(TOTAL(${c}) AS INTEGER) AS ${c}`).join(', ')} FROM (${parts.join(' UNION ALL ')}) ` +
     `GROUP BY ${keys.join(', ')}`, columns);
 }
+// First-time opens (plays_b = 0) per (slug, PC) over rolled days, kept in kpi_cache so raw
+// PC pairs stay in D1 and SQL aggregates cross-session repeat opens down to one count per game.
+const CLOSED_PC_GAMES = 'SELECT json_group_array(json_array(slug, p, n)) AS rows FROM (' +
+  'SELECT slug, p, CAST(TOTAL(first_opens) AS INTEGER) AS n FROM r_pc_game_day WHERE day BETWEEN ?3 AND ?4 GROUP BY 1, 2)';
+function mergedPcRepeats(scope) {
+  const parts = ["SELECT value ->> '$[0]' AS slug, value ->> '$[1]' AS p, value ->> '$[2]' AS n " +
+    "FROM json_each((SELECT rows FROM kpi_cache WHERE key = ?3), '$.pc_games')"];
+  if (scope) parts.push(`SELECT slug, p, first_opens AS n FROM (${rollupSelect('r_pc_game_day', scope)})`);
+  return 'SELECT json_group_array(json_array(slug, repeat_opens)) AS rows FROM (' +
+    'SELECT slug, CAST(TOTAL(CASE WHEN n > 1 THEN n - 1 ELSE 0 END) AS INTEGER) AS repeat_opens FROM (' +
+    `SELECT slug, p, TOTAL(n) AS n FROM (${parts.join(' UNION ALL ')}) GROUP BY 1, 2` +
+    ') GROUP BY 1 HAVING repeat_opens > 0)';
+}
 // The rest, as JSON: the engaged ms per day by the wire version of the session's PC ('3',
-// '2': the old portal), and the PCs (their codes) that played.
-const extras = (kinds, pcs) => `SELECT (SELECT json_group_array(json_array(day, k2, ms)) FROM (${kinds})) AS kinds, ` +
-  `(SELECT json_group_array(p) FROM (${pcs})) AS pcs`;
-const EXTRAS = ['kinds', 'pcs'];
-// Over the rolled days ?3..?4 (the closed groups' parameters).
+// '2': the old portal), the PCs (their codes) that played, and per-game recent-7d vs prior-21d
+// organic play windows (for the automated regression detector).
+const extras = (kinds, pcs, windows) => `SELECT (SELECT json_group_array(json_array(day, k2, ms)) FROM (${kinds})) AS kinds, ` +
+  `(SELECT json_group_array(p) FROM (${pcs})) AS pcs, ` +
+  `(SELECT json_group_array(json_array(slug, rec, opens, ms, b25)) FROM (${windows})) AS windows`;
+const EXTRAS = ['kinds', 'pcs', 'windows'];
+// Over the rolled days ?3..?4 (and ?7..?9 split at ?8 for the 7d-vs-21d organic trend windows).
 const CLOSED_EXTRAS = extras(
   `SELECT x.day AS day, ${statK2('x')} AS k2, TOTAL(x.ms) AS ms FROM r_stat x WHERE x.day IN (SELECT day FROM roll_days WHERE day BETWEEN ?3 AND ?4) ` +
     `AND x.a IN ${A_LIST} AND x.metric = 'sesslen' AND x.slug = '' GROUP BY 1, 2`,
-  "SELECT DISTINCT p FROM r_pc_day WHERE day BETWEEN ?3 AND ?4 AND p <> ''");
+  "SELECT DISTINCT p FROM r_pc_day WHERE day BETWEEN ?3 AND ?4 AND p <> ''",
+  'SELECT slug, CASE WHEN day >= ?8 THEN 1 ELSE 0 END AS rec, CAST(TOTAL(org_opens) AS INTEGER) AS opens, ' +
+    'CAST(TOTAL(org_engaged_ms) AS INTEGER) AS ms, CAST(TOTAL(org_b25) AS INTEGER) AS b25 ' +
+    'FROM r_game_day WHERE day BETWEEN ?7 AND ?9 AND org_opens > 0 GROUP BY 1, 2');
 const openExtras = scope => extras(
   `SELECT ${scope.day} AS day, ${WIRE_KIND} AS k2, TOTAL(v.engaged_ms) AS ms FROM st_sessions s LEFT JOIN st_visits v ON v.sid = s.id ` +
   'WHERE s.start_s >= ?1 AND s.start_s < ?2 GROUP BY 1, 2',
-  "SELECT DISTINCT s.p AS p FROM st_sessions s WHERE s.start_s >= ?1 AND s.start_s < ?2 AND s.p <> ''");
+  "SELECT DISTINCT s.p AS p FROM st_sessions s WHERE s.start_s >= ?1 AND s.start_s < ?2 AND s.p <> ''",
+  `SELECT v.slug AS slug, CASE WHEN ${scope.day} >= ?5 THEN 1 ELSE 0 END AS rec, COUNT(*) AS opens, ` +
+  'CAST(TOTAL(v.engaged_ms) AS INTEGER) AS ms, CAST(TOTAL(v.engaged_ms < 25000) AS INTEGER) AS b25 ' +
+  `FROM st_sessions s JOIN st_visits v ON v.sid = s.id WHERE s.start_s >= ?1 AND s.start_s < ?2 ` +
+  `AND v.t_open IS NOT NULL AND IFNULL(v.src, '') <> 'surprise' AND ${scope.day} >= ?4 AND ${scope.day} <= ?6 GROUP BY 1, 2`);
 // The closed part of a KPI answer, made and kept in kpi_cache by SQL (key ?5, rv ?6) unless
-// it is kept already, so that it never passes through the Worker: the groups and the
-// extras as one JSON object. Over the frozen days ?1..?2 (legacy) and the rolled days
-// ?3..?4. (SQLite computes the values only for a row that passes the WHERE.)
+// it is kept already, so that it never passes through the Worker: the groups, PC repeat map
+// and extras as one JSON object. Over the frozen days ?1..?2 (legacy) and the rolled days
+// ?3..?4 (?7..?9 for trend windows split at ?8). (SQLite computes the values only for a row that passes the WHERE.)
 const keptBySql = (key, json) => `INSERT INTO kpi_cache (key, made, rows) SELECT ${key}, ?6, ${json} ` +
   `WHERE NOT EXISTS (SELECT 1 FROM kpi_cache WHERE key = ${key})`;
 const CLOSED_PART = [false, true].map(legacy => keptBySql('?5', 'json_object(' + GROUPS.map((name, i) => `'${name}', json((${CLOSED_GROUPS[legacy ? 1 : 0][i]}))`)
+  .concat(`'pc_games', json((${CLOSED_PC_GAMES}))`)
   .concat(`'extras', json((SELECT json_object(${EXTRAS.map(k => `'${k}', json(${k})`).join(', ')}) FROM (${CLOSED_EXTRAS})))`).join(', ') + ')'));
 // The closed part's extras (kept under ?3) and the facts' (the scope's [?1, ?2)).
 const mergedExtras = scope => "SELECT (SELECT rows -> '$.extras' FROM kpi_cache WHERE key = ?3) AS kept" +
@@ -856,19 +892,37 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
       remember(probe.results[0], now);
       return 'ready';
     }
+    async function schema6Add() {
+      const checks = Object.keys(SCHEMA_6_COLUMNS).map(table => sql(`PRAGMA table_info(${table})`));
+      const results = await batch(checks);
+      const add = [];
+      Object.entries(SCHEMA_6_COLUMNS).forEach(([table, cols], i) => {
+        const have = new Set(results[i].results.map(r => r.name));
+        for (const col of cols) if (!have.has(col)) add.push(`ALTER TABLE ${table} ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
+      });
+      return add;
+    }
     let steps;
-    if (version === 4) {
-      steps = [...MIGRATE_5, setVersion(5)];
+    if (version === 5) {
+      // Safe additive upgrade from schema 5: O(1) metadata-only ALTER TABLE ADD COLUMN DEFAULT 0
+      // plus r_pc_game_day, cache invalidation, and incremental recount of rolled days.
+      const add = await schema6Add();
+      steps = [...add, ROLLUP_DDL.r_pc_game_day, 'DELETE FROM kpi_cache',
+        "UPDATE settings SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'rv'",
+        ...(add.length ? MIGRATE_6_MARK : []), setVersion(SCHEMA_VERSION)];
+    } else if (version === 4) {
+      const add = await schema6Add();
+      steps = [...MIGRATE_5, ...add, ROLLUP_DDL.r_pc_game_day, ...(add.length ? MIGRATE_6_MARK : []), setVersion(SCHEMA_VERSION)];
     } else if (version === 3) {
       // Milestone 2: the facts and rollups next to the frozen aggregates; seen goes, live is
       // made again; the frozen aggregates' age bands wait to be cleared.
-      steps = [...SCHEMA_5, 'DROP TABLE IF EXISTS seen', 'DROP TABLE IF EXISTS live', LIVE_5, [SETTINGS_INIT, utcDay(now), utcDay(now), '1'], setVersion(5)];
+      steps = [...SCHEMA_5, 'DROP TABLE IF EXISTS seen', 'DROP TABLE IF EXISTS live', LIVE_5, [SETTINGS_INIT, utcDay(now), utcDay(now), '1'], setVersion(SCHEMA_VERSION)];
     } else if (version > 0 || (await batch([sql("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ev_go'")]))[0].results.length) {
-      // Schema 1 or 2, or the first server's tables: schema 3 first, schema 5 on the next call.
+      // Schema 1 or 2, or the first server's tables: schema 3 first, current schema on the next call.
       steps = [...SCHEMA_3, ...(version ? [] : legacyUpgrade()), setVersion(3)];
     } else {
-      // A new database: schema 5 directly, without the aggregates.
-      steps = [SCHEMA_3[0], SCHEMA_3[3], ...SCHEMA_5, LIVE_5, [SETTINGS_INIT, utcDay(now), '', ''], setVersion(5)];
+      // A new database: current schema directly, without the aggregates.
+      steps = [SCHEMA_3[0], SCHEMA_3[3], ...SCHEMA_5, LIVE_5, [SETTINGS_INIT, utcDay(now), '', ''], setVersion(SCHEMA_VERSION)];
     }
     await batch(steps.map(step => Array.isArray(step) ? sql(step[0]).bind(...step.slice(1)) : sql(step)));
     return 'migrated';
@@ -1245,18 +1299,26 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
       const { found } = await lookup([answerKey], now);
       if (found.has(answerKey.key)) return new JsonText(withClock(found.get(answerKey.key), now));
     }
-    // One batch: the closed part, made and kept unless it is kept already; then the groups
-    // and the extras of the whole answer. An empty range is '1'..'0'.
+    // One batch: the closed part, made and kept unless it is kept already; then the groups,
+    // PC repeat opens and extras of the whole answer. An empty range is '1'..'0'.
+    const daysCount = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / DAY_MS) + 1;
+    const hasTrend = daysCount >= 14;
+    const recFrom = hasTrend ? addDays(to, -6) : '1';
+    const priFrom = hasTrend ? (from > addDays(to, -27) ? from : addDays(to, -27)) : '1';
+    const closedWinFrom = hasTrend && rolled ? (priFrom > rolled[0] ? priFrom : rolled[0]) : '1';
+    const closedWinTo = hasTrend && rolled ? rolled[1] : '0';
     const none = ['1', '0'], closedKey = legacy || rolled ? JSON.stringify(['kpis', from, to, legacy, rolled, rv]) : '', work = [];
-    if (closedKey) work.push(bound(CLOSED_PART[legacyUntil ? 1 : 0], [...(legacy || none), ...(rolled || none), closedKey, rv]));
-    const merged = mergedStatements(scope), at = work.length, values = [...(bounds || [0, 0]), closedKey];
-    work.push(...merged.groups.map(text => bound(text, values)), bound(merged.extras, values));
+    if (closedKey) work.push(bound(CLOSED_PART[legacyUntil ? 1 : 0], [...(legacy || none), ...(rolled || none), closedKey, rv, closedWinFrom, recFrom, closedWinTo]));
+    const merged = mergedStatements(scope), at = work.length;
+    const values = [...(bounds || [0, 0]), closedKey, hasTrend ? priFrom : '1', recFrom, hasTrend ? to : '0'];
+    work.push(...merged.groups.map(text => bound(text, values)), bound(merged.pcRepeats, values), bound(merged.extras, values));
     const results = await run(work, now);
     const groups = Object.fromEntries(GROUPS.map((name, i) => [name, arrays(results[at + i])]));
-    const row = results[at + GROUPS.length].results[0], extras = [];
+    const pcRepeats = new Map(arrays(results[at + GROUPS.length]));
+    const row = results[at + GROUPS.length + 1].results[0], extras = [];
     if (row.kept) extras.push(JSON.parse(row.kept));
     if (scope) extras.push(extrasOf(row));
-    const answer = assemble(from, to, groups, extras);
+    const answer = assemble(from, to, groups, extras, pcRepeats, hasTrend);
     const text = JSON.stringify(answer);
     if (answerKey) await keepParts([[answerKey, text]], now);
     // The answer, and the text the handler sends for it (so it is not written again).
@@ -1271,14 +1333,14 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
     let texts = mergedTexts.get(key);
     if (!texts) {
       if (mergedTexts.size >= 8) mergedTexts.clear();
-      mergedTexts.set(key, texts = { groups: GROUPS.map(name => mergedGroup(name, scope)), extras: mergedExtras(scope) });
+      mergedTexts.set(key, texts = { groups: GROUPS.map(name => mergedGroup(name, scope)), pcRepeats: mergedPcRepeats(scope), extras: mergedExtras(scope) });
     }
     return texts;
   }
 
-  // The answer from its groups (one row per key) and its extras (the closed part's and the
-  // open part's).
-  function assemble(from, to, groups, parts) {
+  // The answer from its groups (one row per key), its extras (the closed part's and the
+  // open part's), and cross-session PC repeat opens per game.
+  function assemble(from, to, groups, parts, pcRepeats, hasTrend) {
     const [dayRows, gameRows, levelRows, sourceRows, deviceRows] = GROUPS.map(name => NESTED[name] ? groups[name].map(row => [].concat(...row)) : groups[name]);
 
     // The day totals, per day; and the facts' own, for the data-quality shares.
@@ -1290,11 +1352,18 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
       if (row[1] !== 1) continue;
       for (let i = 0; i < v.length; i++) facts[i] += v[i];
     }
-    // The engaged ms of sessions on the current portal and on the old one, and the PCs.
-    const kinds = { 3: 0, 2: 0 }, pcs = new Set();
+    // The engaged ms of sessions on the current portal and on the old one, the PCs, and the
+    // recent-7d vs prior-21d organic play windows per game.
+    const kinds = { 3: 0, 2: 0 }, pcs = new Set(), winBySlug = new Map();
     for (const extras of parts) {
       for (const [, kind, ms] of extras.kinds) kinds[kind === '2' ? 2 : 3] += ms;
       for (const p of extras.pcs) pcs.add(p);
+      for (const [slug, rec, opens, ms, b25] of extras.windows || []) {
+        let w = winBySlug.get(slug);
+        if (!w) winBySlug.set(slug, w = { r: { opens: 0, ms: 0, b25: 0 }, p: { opens: 0, ms: 0, b25: 0 } });
+        const b = rec ? w.r : w.p;
+        b.opens += opens; b.ms += ms; b.b25 += b25;
+      }
     }
 
     const sessions = total[D.sessions];
@@ -1310,10 +1379,13 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
     const modes = ['web', 'app'].filter(mode => total[D[mode]] > 0).map(mode => group({ mode }, total[D[mode]], () => ({})));
 
     // Per game.
+    const ZERO_WIN = { opens: 0, ms: 0, b25: 0 };
+    const winStat = b => ({ opens: b.opens, avgSec: mean(b.ms / 1000, b.opens, 1), bounce25Rate: ratio(b.b25, b.opens) });
     const bySlug = sumRows(gameRows, 1);
     const games = [...bySlug.keys()].sort(natural).map(slug => {
       const g = bySlug.get(slug).v, c = codes(g, G), starts = g[G.starts], closes = g[G.closes];
       const hits = g[G.hits], misses = g[G.misses], loads = g[G.loads], errors = {}, sources = {};
+      const orgOpens = g[G.org_opens], w = hasTrend ? winBySlug.get(slug) : null;
       for (let i = 0; i < ERRORS.length; i++) errors[ERRORS[i]] = g[G_ERRORS[i]];
       for (let i = 0; i < SOURCES.length; i++) if (g[G_SOURCES[i]]) sources[SOURCES[i]] = g[G_SOURCES[i]];
       return {
@@ -1325,11 +1397,17 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
         hits, misses, accuracy: ratio(hits, hits + misses),
         rt: pick(g, G_RT), il: pick(g, G_IL), frames: frames(g, G),
         loads, avgLoadMs: loads ? Math.round(g[G.load_ms] / loads) : null, errors, sources,
-        replay: { replayIndex: pick(g, G_REPLAY), playsBefore: pick(g, G_PLAYS) },
+        replay: { replayIndex: pick(g, G_REPLAY), playsBefore: pick(g, G_PLAYS), pcRepeatOpens: pcRepeats.get(slug) || 0 },
         hearts: { on: g[G.hearts_on], off: g[G.hearts_off] },
         tutorials: { start: g[G.tu_start], done: g[G.tu_done] }, wallMinutes: minutes(g[G.wall_s] * 1000),
         actionsPerMinute: mean(g[G.inputs], g[G.wall_s] / 60, 1), avgScore: mean(g[G.score_sum], g[G.score_n], 1),
-        unended: g[G.unended], duoRounds: g[G.duo]
+        unended: g[G.unended], duoRounds: g[G.duo],
+        organic: {
+          opens: orgOpens, engagedMinutes: minutes(g[G.org_engaged_ms]),
+          avgSec: mean(g[G.org_engaged_ms] / 1000, orgOpens, 1),
+          bounce25Rate: ratio(g[G.org_b25], orgOpens), stay2mRate: ratio(g[G.org_s2m], orgOpens)
+        },
+        trend: hasTrend ? { recent: winStat(w ? w.r : ZERO_WIN), prior: winStat(w ? w.p : ZERO_WIN) } : null
       };
     });
 
@@ -1349,7 +1427,11 @@ export function openStore(db, { retentionDays = RETENTION_DAYS, openCacheMs = 0,
     const bySource = sumRows(sourceRows, 1);
     const sources = SOURCES.filter(src => bySource.has(src)).map(src => {
       const { v } = bySource.get(src);
-      return group({ src }, v[S.sessions], () => ({ opens: v[S.opens] }));
+      return group({ src }, v[S.sessions], () => ({
+        opens: v[S.opens],
+        avgSec: mean(v[S.engaged_ms] / 1000, v[S.opens], 1),
+        bounce25Rate: ratio(v[S.bounces_25s], v[S.opens])
+      }));
     });
 
     // Coarse device buckets against smoothness, input latency and load time.

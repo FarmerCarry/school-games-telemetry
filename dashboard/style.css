@@ -395,12 +395,14 @@ table.data thead th { font-size: 12.5px; color: var(--ink-2); font-weight: 600; 
 table.data tbody th { font-weight: 500; }
 table.data .num { text-align: end; font-variant-numeric: tabular-nums; white-space: nowrap; }
 table.data .muted { color: var(--ink-2); }
-table.health td.is-flagged { font-weight: 650; }
+table.health td.is-flagged, table.scorecard td.is-flagged { font-weight: 650; }
 .flag-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--serious); margin-inline-end: 6px; vertical-align: 1px; }
 td.flags { white-space: normal; }
 .flag { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; padding: 1px 9px 1px 7px; border-radius: 999px; background: var(--surface-2); margin: 1px 4px 1px 0; white-space: nowrap; }
 .flag-icon { width: 11px; height: 11px; fill: var(--serious); }
+.flag.is-critical .flag-icon { fill: var(--critical); }
 .flag-ok { font-size: 12.5px; color: var(--ink-2); }
+.scorecard-tools { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
 
 .footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--ink-2); }
 .footer p { margin: 0 0 4px; }
@@ -562,13 +564,13 @@ table.dictionary .dict-name { white-space: nowrap; }
   .diff-game, .diff-bar { grid-column: 1 / -1; }
   .diff-cell { display: flex; flex-direction: column; gap: 2px; }
   .verdict { font-size: 12.5px; }
-  table.health thead { display: none; }
-  table.health, table.health tbody, table.health tr { display: block; }
-  table.health tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
-  table.health th, table.health td { border: 0; padding: 2px 0; }
-  table.health th[scope="row"], table.health td.flags { grid-column: 1 / -1; }
-  table.health td.num { text-align: start; padding-top: 4px; }
-  table.health td.num::before { content: attr(data-label); display: block; font-weight: 400; color: var(--ink-2); font-size: 12px; }
+  table.health thead, table.scorecard thead { display: none; }
+  table.health, table.health tbody, table.health tr, table.scorecard, table.scorecard tbody, table.scorecard tr { display: block; }
+  table.health tr, table.scorecard tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 12px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+  table.health th, table.health td, table.scorecard th, table.scorecard td { border: 0; padding: 2px 0; }
+  table.health th[scope="row"], table.health td.flags, table.scorecard th[scope="row"], table.scorecard td.flags { grid-column: 1 / -1; }
+  table.health td.num, table.scorecard td.num { text-align: start; padding-top: 4px; }
+  table.health td.num::before, table.scorecard td.num::before { content: attr(data-label); display: block; font-weight: 400; color: var(--ink-2); font-size: 12px; }
   table.dictionary thead { display: none; }
   table.dictionary, table.dictionary tbody, table.dictionary tr, table.dictionary th, table.dictionary td { display: block; }
   table.dictionary tr { padding: 10px 0; border-bottom: 1px solid var(--grid); }

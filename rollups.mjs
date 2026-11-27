@@ -49,14 +49,17 @@ export const ROLLUPS = {
   cleared: [...TABLES.agg_days.cleared, 'students', 'new_students', 'guest_sessions', 'linked_ms'] },
   r_game_day: { key: [['day', TEXT], ['a', TEXT], ['slug', TEXT]], sums: [...TABLES.agg_games.sums, 'wall_s',
     'inputs', 'idle', 'pauses', 'rt_sum', 'rt_n', 'dda_sum', 'dda_n', 'score_sum', 'score_n', 'score_max', 'unended', 'duo',
-    'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'fav_opens'], cleared: ['students'] },
+    'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'fav_opens', 'org_opens', 'org_engaged_ms', 'org_b25', 'org_s2m'], cleared: ['students'] },
   r_level_day: { key: [['day', TEXT], ['a', TEXT], ['slug', TEXT], ['id', TEXT]], sums: [...TABLES.agg_levels.sums,
     'unended', 'hits', 'misses', 'score_sum', 'score_n', 'score_max', 'wall_ms', 'dda_sum', 'dda_n'], cleared: ['students'] },
-  r_source_day: { key: [['day', TEXT], ['a', TEXT], ['src', TEXT]], sums: ['sessions', 'opens'] },
+  r_source_day: { key: [['day', TEXT], ['a', TEXT], ['src', TEXT]], sums: ['sessions', 'opens', 'engaged_ms', 'bounces_25s'] },
   r_device_day: { key: [['day', TEXT], ['a', TEXT], ['cores', INT], ['mem', INT], ['screen', INT]], sums: TABLES.agg_devices.sums },
   r_pc_day: { key: [['day', TEXT], ['p', TEXT]], text: ['k'], sums: ['sessions', 'engaged_ms', 'opens', 'loads',
     'load_ms', 'load_max', 'errors', 'quits', ...F, ...IL, 'busy_s', 'first_s', 'last_s', 'wire'],
   cleared: ['students', 'guests', 'np_max', 'new_profiles'] },
+  // Visits with plays_b = 0 per PC and game, so cross-session returning PC opens can be derived
+  // even on historical sessions recorded before client plays_b tracking was restored.
+  r_pc_game_day: { key: [['day', TEXT], ['p', TEXT], ['slug', TEXT]], sums: ['first_opens'] },
   // r_stat's d, e, wall_ms, score_*, tier_* and dda_* were only counted by the per-student metrics.
   r_stat: { key: [['day', TEXT], ['a', TEXT], ['metric', TEXT], ['slug', TEXT], ['k1', TEXT], ['k2', TEXT]], sums: ['n',
     'w', 'l', 'q', 'ms', 'win_ms', 'hits', 'misses', 'rt_sum', 'rt_n', 'inputs', 'gap_sum', 'gap_n'],
@@ -149,7 +152,11 @@ const ROLL_PARTS = {
       sessions: 'COUNT(DISTINCT v.sid)', ...visitTime, closes: 'TOTAL(v.closed)', ...health,
       ...Object.fromEntries(ERRORS.map(kind => ['error_' + kind, `TOTAL(v.err = '${kind}')`])),
       ...Object.fromEntries(SOURCES.map(src => ['src_' + src, `TOTAL(v.src = '${src}')`])), ...each(PLAYS, (c, i) => `TOTAL(v.plays_b = ${i})`),
-      fav_opens: 'TOTAL(v.fav = 1)' } },
+      fav_opens: 'TOTAL(v.fav = 1)',
+      org_opens: "TOTAL(v.t_open IS NOT NULL AND IFNULL(v.src, '') <> 'surprise')",
+      org_engaged_ms: "TOTAL(CASE WHEN v.t_open IS NOT NULL AND IFNULL(v.src, '') <> 'surprise' THEN v.engaged_ms END)",
+      org_b25: "TOTAL(v.t_open IS NOT NULL AND IFNULL(v.src, '') <> 'surprise' AND v.engaged_ms < 25000)",
+      org_s2m: "TOTAL(v.t_open IS NOT NULL AND IFNULL(v.src, '') <> 'surprise' AND v.engaged_ms >= 120000)" } },
     { from: SESSIONS + ROUNDS, keys: { a: NO_BAND, slug: 'r.slug' }, values: {
       ...startsEnds, ...outcomes, ...tiers, ...accuracy, ...each(RT, c => `TOTAL(r.${c})`), ...each(REPLAY, (c, i) => `TOTAL(${replayBucket} = ${i})`),
       wall_s: 'ROUND(TOTAL(r.wall_ms) / 1000)', inputs: 'TOTAL(r.inputs)', idle: 'TOTAL(r.idle)', pauses: 'TOTAL(r.pauses)', ...reaction,
@@ -163,7 +170,8 @@ const ROLL_PARTS = {
       ...accuracy, ...scores, score_max: 'MAX(r.score)', wall_ms: 'TOTAL(r.wall_ms)', ...dda } }
   ],
   r_source_day: [
-    { from: SESSIONS + VISITS, where: ' AND v.src IS NOT NULL', keys: { a: NO_BAND, src: 'v.src' }, values: { sessions: 'COUNT(DISTINCT v.sid)', opens: 'COUNT(*)' } }
+    { from: SESSIONS + VISITS, where: ' AND v.src IS NOT NULL', keys: { a: NO_BAND, src: 'v.src' },
+      values: { sessions: 'COUNT(DISTINCT v.sid)', opens: 'COUNT(*)', engaged_ms: 'TOTAL(v.engaged_ms)', bounces_25s: 'TOTAL(v.engaged_ms < 25000)' } }
   ],
   r_device_day: [
     { from: SESSIONS, keys: { a: NO_BAND, cores: 's.cores', mem: 's.mem', screen: 's.screen' }, values: { sessions: 'COUNT(*)' } },
@@ -174,6 +182,10 @@ const ROLL_PARTS = {
       first_s: 'MIN(s.start_s)', last_s: 'MAX(s.start_s)', wire: 'MAX(s.wire)' } },
     { from: SESSIONS + VISITS, keys: { p: 's.p' }, values: { ...visitTime, ...health, load_max: 'MAX(v.load_ms)', errors: 'TOTAL(v.err IS NOT NULL)' } },
     { from: SESSIONS + ROUNDS, keys: { p: 's.p' }, values: { quits: "TOTAL(r.code = 'q')" } }
+  ],
+  r_pc_game_day: [
+    { from: SESSIONS + VISITS, where: " AND s.p <> '' AND v.t_open IS NOT NULL AND v.plays_b = 0",
+      keys: { p: 's.p', slug: 'v.slug' }, values: { first_opens: 'COUNT(*)' } }
   ]
 };
 
@@ -203,7 +215,7 @@ function statParts(scope) {
       where: ' WHERE x.g > 0', slug: "''", k1: "CASE WHEN x.g >= 8 THEN '8' WHEN x.g >= 6 THEN '6' ELSE CAST(x.g AS TEXT) END", k2: "''",
       values: { n: 'COUNT(*)' } },
     { metric: 'visitlen', from: V, slug: 'v.slug', k1: bucket('v.engaged_ms', BUCKETS.visitlen, 1000),
-      k2: "CASE WHEN EXISTS (SELECT 1 FROM st_rounds y WHERE y.sid = v.sid AND y.n = v.n AND y.code IS NOT NULL) THEN '1' ELSE '0' END",
+      k2: "CASE WHEN EXISTS (SELECT 1 FROM st_rounds y WHERE y.sid = v.sid AND y.n = v.n AND y.code IN ('w', 'l', 'd', 'e')) THEN '1' ELSE '0' END",
       values: { n: 'COUNT(*)', ms: 'TOTAL(v.engaged_ms)' } },
     // Into each visit from the one before ('' at the session's start), and out of a visit with no next one.
     { metric: 'flow', from: V + ' LEFT JOIN st_visits pv ON pv.sid = v.sid AND pv.n = v.n - 1', slug: "IFNULL(pv.slug, '')", k1: 'v.slug', k2: "''",

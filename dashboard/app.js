@@ -843,6 +843,7 @@
   function draw(fn) { drawers.push(fn); }
 
   var ICONS = {
+    regression: 'M3 7l6 6 4-4 8 8M15 17h6v-6',
     stuck: 'M12 3 2 21h20L12 3Zm0 6v5m0 3v.5', hard: 'M12 3 2 21h20L12 3Zm0 6v5m0 3v.5',
     favourite: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z',
     health: 'M3 5h18v11H3zM8 20h8M12 16v4', returning: 'M4 12a8 8 0 0 1 14-5.3M20 4v4h-4M20 12a8 8 0 0 1-14 5.3M4 20v-4h4',

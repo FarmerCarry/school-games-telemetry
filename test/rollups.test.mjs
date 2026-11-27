@@ -210,15 +210,21 @@ async function oracle(db, zone, day) {
     // per game, per level, per source
     for (const v of vs) {
       g = row('r_game_day', [day, '', v.slug]);
+      const isOrg = v.t_open !== null && (v.src || '') !== 'surprise';
       add(g, { opens: v.t_open !== null, closes: v.closed, engaged_ms: v.engaged_ms, ...Object.fromEntries([...F, ...IL].map(col => [col, v[col]])),
         loads: v.load_ms !== null, load_ms: v.load_ms, ...Object.fromEntries(ERRORS.map(e => ['error_' + e, v.err === e])),
         ...Object.fromEntries(SOURCES.map(src => ['src_' + src, v.src === src])), ...Object.fromEntries([0, 1, 2, 3, 4].map(i => ['plays' + i, v.plays_b === i])),
-        fav_opens: v.fav === 1 });
+        fav_opens: v.fav === 1,
+        org_opens: isOrg, org_engaged_ms: isOrg ? v.engaged_ms : 0,
+        org_b25: isOrg && v.engaged_ms < 25000, org_s2m: isOrg && v.engaged_ms >= 120000 });
       distinct(g, 'sessions', s.id);
       if (v.src !== null) {
         const src = row('r_source_day', [day, '', v.src]);
-        add(src, { opens: 1 });
+        add(src, { opens: 1, engaged_ms: v.engaged_ms, bounces_25s: v.engaged_ms < 25000 });
         distinct(src, 'sessions', s.id);
+      }
+      if (s.p && v.t_open !== null && v.plays_b === 0) {
+        add(row('r_pc_game_day', [day, s.p, v.slug]), { first_opens: 1 });
       }
     }
     for (const x of rs) {
@@ -251,7 +257,7 @@ async function oracle(db, zone, day) {
     const opened = new Set(vs.filter(v => v.t_open !== null).map(v => v.slug)).size;
     if (opened) stat('games', '', opened >= 8 ? '8' : opened >= 6 ? '6' : String(opened), '', { n: 1 });
     for (const v of vs) {
-      const ended = rs.some(x => x.n === v.n && x.code !== null);
+      const ended = rs.some(x => x.n === v.n && ['w', 'l', 'd', 'e'].includes(x.code));
       stat('visitlen', v.slug, bucket(v.engaged_ms, BUCKETS.visitlen, 1000), ended ? '1' : '0', { n: 1, ms: v.engaged_ms });
       const before = vs.find(x => x.n === v.n - 1), gap = before && before.t_close !== null && v.t_open !== null;
       stat('flow', before ? before.slug : '', v.slug, '', { n: 1, gap_sum: gap ? Math.max(v.t_open - before.t_close, 0) : 0, gap_n: gap ? 1 : 0 });
@@ -417,5 +423,47 @@ test('the driver refuses what D1 refuses (a sixth compound term, a 33rd function
   }
   // And so does every statement that clears what schema 4 wrote.
   for (const text of clearStatements({ frozen: true })) assert.equal(d1LimitError(text), null, text.slice(0, 60));
+  db.close();
+});
+
+test('visitlen classifies instant quit-only visits as not finished (k2=0) and completed rounds (w/l/d/e) as finished (k2=1)', async () => {
+  const zone = 'Asia/Riyadh', day = '2026-10-20', { db, store } = await storeFor(zone, day), { lo, hi } = dayBounds(zone, day);
+  const z6 = [0, 0, 0, 0, 0, 0], z4 = [100, 0, 0, 0];
+  const makeVisit = (sid, slug, code, ms) => ({
+    v: 3, b: sid + '0001', s: sid, k: 'src', m: 'web', d: [4, 4, 1920], p: 'a1b2c3d4e5f6', z: zone, w: 30,
+    ev: [
+      ['ss', 0],
+      ['go', 1, 1, slug, 'catalog', 0, 0],
+      ['rs', 2, 1, 1, slug, 'L1', 1, 0],
+      ['re', 5, 1, 1, slug, code, 'L1', ms, -1, 1, 0, 0, z6, null],
+      ['gx', 6, 1, slug, ms, z6, z4]
+    ]
+  });
+  const at = (lo + 3600) * 1000;
+  // 3-second visit with an instant 'q' quit must land in k1='0', k2='0' (Quick exit, NOT finished).
+  await store.ingest(validateBatch(makeVisit('111111111111', 'road-hopper', 'q', 3000)), at);
+  // 3-second visits ending with w, l, d, e must land in k1='0', k2='1' (finished a round).
+  await store.ingest(validateBatch(makeVisit('222222222222', 'road-hopper', 'w', 3000)), at + 1000);
+  await store.ingest(validateBatch(makeVisit('333333333333', 'road-hopper', 'l', 3000)), at + 2000);
+  await store.ingest(validateBatch(makeVisit('444444444444', 'road-hopper', 'd', 3000)), at + 3000);
+  await store.ingest(validateBatch(makeVisit('555555555555', 'road-hopper', 'e', 3000)), at + 4000);
+  // Visit with no rounds at all also lands in k2='0'.
+  await store.ingest(validateBatch({
+    v: 3, b: '6666666666660001', s: '666666666666', k: 'src', m: 'web', d: [4, 4, 1920], p: 'a1b2c3d4e5f6', z: zone, w: 30,
+    ev: [['ss', 0], ['go', 1, 1, 'road-hopper', 'catalog', 0, 0], ['gx', 4, 1, 'road-hopper', 3000, z6, z4]]
+  }), at + 5000);
+
+  // Roll up and verify r_stat directly AND through store.game().
+  // (store.game() reads r_stat from rolled days; the 3s 'q' quit + no-round visit must land in k2='0', while w/l/d/e land in k2='1'.)
+  const rollAt = (hi + 2 * 3600) * 1000;
+  assert.equal((await store.rollupStep(rollAt)).rolled, day);
+  const rows = (await db.prepare("SELECT k1, k2, n, ms FROM r_stat WHERE day = ?1 AND metric = 'visitlen' AND slug = 'road-hopper' ORDER BY k1, k2").bind(day).all()).results;
+  assert.deepEqual(rows, [
+    { k1: '0', k2: '0', n: 2, ms: 6000 },
+    { k1: '0', k2: '1', n: 4, ms: 12000 }
+  ]);
+  const after = await openStore(db).game({ slug: 'road-hopper', from: day, to: day }, rollAt + 60000);
+  const visitlenOf = g => g.stats.rows.filter(r => r[0] === 'visitlen').map(r => [r[1], r[2], r[3]]).sort();
+  assert.deepEqual(visitlenOf(after), [['0', '0', 2], ['0', '1', 4]]);
   db.close();
 });

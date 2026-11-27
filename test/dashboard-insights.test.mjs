@@ -40,8 +40,8 @@ const strip = text => text.replace(/[\u2066-\u2069]/g, '');
 
 // ---- a small hand-made KPI answer in the documented shape ------------------------
 const codes = (w, l, q, d = 0, e = 0) => ({ w, l, d, e, q });
-function game(slug, { opens = 40, sessions = 30, starts = 100, c = codes(60, 30, 10), smooth = 0.9, loadMs = 900, il = [80, 10, 5, 3, 1, 1],
-  errors = { t: 0, x: 0, l: 0 }, playsBefore = [20, 5, 5, 5, 5] } = {}) {
+function game(slug, { opens = 40, sessions = 30, starts = 100, c = codes(60, 30, 10), smooth = 0.9, loadMs = 200, il = [80, 10, 5, 3, 1, 1],
+  errors = { t: 0, x: 0, l: 0 }, playsBefore = [20, 5, 5, 5, 5], pcRepeatOpens = 0, organic = null, trend = null } = {}) {
   const wl = c.w + c.l;
   return {
     slug, sessions, opens, closes: opens, engagedMinutes: opens * 2, avgEngagedSecPerOpen: 120,
@@ -49,7 +49,9 @@ function game(slug, { opens = 40, sessions = 30, starts = 100, c = codes(60, 30,
     completionRate: starts ? Math.round(c.w / starts * 1e4) / 1e4 : null, winRate: wl ? Math.round(c.w / wl * 1e4) / 1e4 : null,
     dropOffRate: starts ? Math.round(c.q / starts * 1e4) / 1e4 : null, avgTier: null, hits: 0, misses: 0, accuracy: null,
     rt: [0, 0, 0, 0, 0, 0], il, frames: { counts: [smooth * 1000, (1 - smooth) * 1000, 0, 0], smoothShare: smooth, stallShare: 0 },
-    loads: opens, avgLoadMs: loadMs, errors, sources: { catalog: opens }, replay: { replayIndex: [starts, 0, 0, 0, 0, 0], playsBefore }
+    loads: opens, avgLoadMs: loadMs, errors, sources: { catalog: opens }, replay: { replayIndex: [starts, 0, 0, 0, 0, 0], playsBefore, pcRepeatOpens },
+    organic: organic || { opens, engagedMinutes: opens * 2, avgSec: 120, bounce25Rate: 0.1, stay2mRate: 0.6 },
+    trend
   };
 }
 function level(slug, id, starts, quits, sessions = 10) {
@@ -91,8 +93,9 @@ test('the difficulty verdict follows the documented thresholds', () => {
   assert.deepEqual({ ...I.T }, {
     MIN_TRIES: 20, MIN_EARLY_TRIES: 10, MIN_SESSIONS_NO_TRIES: 5, HARD_WIN: 0.4, HARD_QUIT: 0.3, EASY_WIN: 0.9, EASY_QUIT: 0.1,
     HARD_COMPLETION: 0.3, EASY_COMPLETION: 0.85, STUCK_MIN_TRIES: 20, STUCK_RATE: 0.25, RETURN_MIN_OPENS: 20, RETURN_RATE: 0.5,
-    FAIL_MIN_OPENS: 20, FAIL_MIN: 3, FAIL_RATE: 0.03, SLOW_LOAD_MS: 3000, SLOW_LOAD_MIN: 10, CHOPPY_SMOOTH: 0.8, SLOW_INPUT: 0.1,
+    FAIL_MIN_OPENS: 20, FAIL_MIN: 3, FAIL_RATE: 0.03, SLOW_LOAD_MS: 400, SLOW_LOAD_MIN: 10, CHOPPY_SMOOTH: 0.9, SLOW_INPUT: 0.1,
     DEVICE_MIN_SESSIONS: 10, DEVICE_SMOOTH: 0.85, DEVICE_GAP: 0.05, TREND_DAYS: 7, TREND_MIN: 20, TREND_CHANGE: 0.1,
+    REGRESS_MIN_OPENS: 10, REGRESS_AVG_DROP: 0.35, REGRESS_BOUNCE_JUMP: 0.2,
     HEARTS_MIN: 3, SMALL_TRIES: 20
   });
   assert.equal('MIN_SESSIONS' in I.T, false, 'no privacy floor: every group is described');
@@ -132,7 +135,9 @@ test('the difficulty verdict follows the documented thresholds', () => {
   assert.equal(v({ winRate: 0.396, dropOffRate: 0 }), 'right', '39.6 % is shown as 40 %');
   assert.equal(v({ winRate: 0.394, dropOffRate: 0 }), 'hard');
   const choppy = smooth => I.pcHealth({ games: [game('g', { smooth })] }).rows[0].flags.includes('choppy');
-  assert.deepEqual([0.794, 0.7951, 0.81].map(choppy), [true, false, false]);
+  assert.deepEqual([0.894, 0.8951, 0.91].map(choppy), [true, false, false]);
+  const slowLoad = loadMs => I.pcHealth({ games: [game('g', { loadMs })] }).rows[0].flags.includes('slowLoad');
+  assert.deepEqual([349, 350, 400].map(slowLoad), [false, true, true]);
 });
 
 test('rankings are deterministic: a number first, then the slug and the id', () => {
@@ -244,7 +249,7 @@ test('names.js carries every catalog game\'s names (rebuild: node dashboard/make
 });
 
 test('the sentences: at most five, one kind at a time, in the documented order', () => {
-  assert.deepEqual(I.KIND_ORDER, ['stuck', 'hard', 'favourite', 'health', 'returning', 'trend', 'easy', 'hearts']);
+  assert.deepEqual(I.KIND_ORDER, ['regression', 'stuck', 'hard', 'favourite', 'health', 'returning', 'trend', 'easy', 'hearts']);
   const en = I.insights(sample(), opts('en'));
   assert.deepEqual(en.map(s => s.kind), ['stuck', 'hard', 'favourite', 'health', 'returning']);
   assert.equal(en[0].text, 'Children leave Bravo Hop level 1 unfinished in 40% of tries (20 of 50).');
@@ -391,6 +396,86 @@ test('empty and missing data never throw', () => {
   assert.deepEqual(I.pcHealth(null).overall, { smooth: null, loadMs: null, slowInput: null, fails: null, failRate: null });
 });
 
+test('automated 7d-vs-21d regression detector, PC-repeat returning share, and quality scorecard', () => {
+  // 1. Regression detector: avg time drop >= 35%, bounce<25s jump >= +20pp, both, and below min opens (<10).
+  const regSample = sample({
+    levels: [],
+    games: [
+      game('alpha', {
+        opens: 80, sessions: 60, c: codes(60, 30, 10),
+        organic: { opens: 70, engagedMinutes: 50, avgSec: 42.9, bounce25Rate: 0.55, stay2mRate: 0.15 },
+        trend: { recent: { opens: 25, avgSec: 60, bounce25Rate: 0.55 }, prior: { opens: 45, avgSec: 150, bounce25Rate: 0.25 } }
+      }), // avgDrop = 60% AND bounceJump = +30pp
+      game('bravo', {
+        opens: 60, sessions: 40, c: codes(60, 30, 10),
+        trend: { recent: { opens: 15, avgSec: 90, bounce25Rate: 0.20 }, prior: { opens: 30, avgSec: 150, bounce25Rate: 0.15 } }
+      }), // avgDrop = 40% only
+      game('charlie', {
+        opens: 50, sessions: 35, c: codes(60, 30, 10),
+        trend: { recent: { opens: 12, avgSec: 100, bounce25Rate: 0.45 }, prior: { opens: 25, avgSec: 120, bounce25Rate: 0.20 } }
+      }), // bounceJump = +25pp only
+      game('delta', {
+        opens: 20, sessions: 15, c: codes(60, 30, 10),
+        trend: { recent: { opens: 9, avgSec: 10, bounce25Rate: 0.90 }, prior: { opens: 20, avgSec: 200, bounce25Rate: 0.10 } }
+      }) // recent opens < 10: ignored
+    ]
+  });
+  const regs = I.regressions(regSample).rows;
+  assert.deepEqual(regs.map(r => [r.slug, r.dropped, r.jumped]), [
+    ['alpha', true, true], ['bravo', true, false], ['charlie', false, true]
+  ]);
+  // Deterministic ordering even when input order is reversed.
+  assert.deepEqual(I.regressions({ games: regSample.games.slice().reverse() }).rows, regs);
+  // Regression leads insights in both languages, respects 5-sentence cap, Arabic hygiene (Western digits, isolates, no Latin words).
+  for (const lang of ['en', 'ar']) {
+    const ins = I.insights(regSample, opts(lang));
+    assert.ok(ins.length <= 5);
+    assert.equal(ins[0].kind, 'regression');
+    assert.equal(ins[0].key, 'alpha');
+    if (lang === 'en') {
+      assert.match(ins[0].text, /Alpha Run dropped sharply in the last 7 days: average play fell 60% \(60 s against 150 s\) and quick exits under 25 s rose to 55% \(from 25%\)\./);
+    } else {
+      assert.ok(ARABIC.test(ins[0].text));
+      assert.ok(!ARABIC_INDIC_DIGITS.test(ins[0].text), 'Western digits: ' + ins[0].text);
+      assert.ok(!LATIN_WORD.test(strip(ins[0].text)), 'No Latin words: ' + ins[0].text);
+      assert.match(ins[0].text, /«\u2068جري ألفا\u2069»/);
+    }
+  }
+  // Single-cause regression sentences (drop-only and bounce-only) in both languages.
+  const dropOnly = sample({ levels: [], games: [regSample.games[1]] });
+  const bounceOnly = sample({ levels: [], games: [regSample.games[2]] });
+  assert.match(I.insights(dropOnly, opts('en'))[0].text, /average play fell 40%/);
+  assert.ok(!LATIN_WORD.test(strip(I.insights(dropOnly, opts('ar'))[0].text)));
+  assert.match(I.insights(bounceOnly, opts('en'))[0].text, /saw many more quick exits in the last 7 days: visits under 25 s rose to 45% \(from 20%\)/);
+  assert.ok(!LATIN_WORD.test(strip(I.insights(bounceOnly, opts('ar'))[0].text)));
+
+  // 2. Returning share combines playsBefore > 0 with server pcRepeatOpens (and caps at playsBefore[0]).
+  const retKpis = {
+    games: [
+      game('alpha', { opens: 50, playsBefore: [50, 0, 0, 0, 0], pcRepeatOpens: 35 }), // historical all-zero plays_b: 35/50 = 70%
+      game('bravo', { opens: 50, playsBefore: [20, 10, 10, 5, 5], pcRepeatOpens: 10 }), // mixed: 30 + 10 = 40/50 = 80%
+      game('charlie', { opens: 20, playsBefore: [10, 10, 0, 0, 0], pcRepeatOpens: 99 }) // capped at first=10 => 20/20 = 100%
+    ]
+  };
+  const ret = I.returning(retKpis, 1);
+  assert.deepEqual(ret.rows.map(r => [r.slug, r.back, Math.round(r.share * 100)]), [
+    ['charlie', 20, 100], ['bravo', 40, 80], ['alpha', 35, 70]
+  ]);
+  assert.equal(Math.round(ret.overall * 100), Math.round(95 / 120 * 100));
+
+  // 3. Scorecard aggregates organic metrics + health flags + regression flags.
+  const sc = I.scorecard(regSample).rows;
+  const alphaSc = sc.find(r => r.slug === 'alpha');
+  assert.deepEqual(alphaSc.flags, ['regression', 'highBounce', 'shortPlay']);
+  assert.equal(alphaSc.orgAvgSec, 42.9);
+  assert.equal(alphaSc.bounce25, 0.55);
+  assert.equal(alphaSc.stay2m, 0.15);
+  for (const fn of [I.regressions, I.scorecard]) {
+    assert.doesNotThrow(() => fn(null));
+    assert.doesNotThrow(() => fn({}));
+  }
+});
+
 // ---- the real server: the sample data, made again ------------------------------------------
 // dashboard/make-demo.mjs runs the real store and Node server over simulate.mjs's school at a
 // pinned clock, so it writes the same answers every time; they are both the real answers
@@ -452,7 +537,8 @@ const SHAPES = {
 // What the research server adds to the milestone-2 KPI answer, all of which the tabs read.
 const KPI_ADDITIONS = ['range.legacyUntil', 'range.factsSince', 'games[].hearts.on', 'games[].hearts.off',
   'games[].tutorials.start', 'games[].tutorials.done', 'games[].wallMinutes', 'games[].actionsPerMinute', 'games[].avgScore', 'games[].unended',
-  'games[].duoRounds', 'levels[].avgScore', 'levels[].unended',
+  'games[].duoRounds', 'games[].replay.pcRepeatOpens', 'games[].organic.opens', 'games[].organic.engagedMinutes', 'games[].organic.avgSec',
+  'games[].organic.bounce25Rate', 'games[].organic.stay2mRate', 'sources[].avgSec', 'sources[].bounce25Rate', 'levels[].avgScore', 'levels[].unended',
   ...['v2Share', 'clockEstimatedShare', 'unclosedVisits', 'idleHandovers', 'pcsNew', 'oldVersionSessionShare'].map(k => 'quality.' + k)];
 // Schema 4's player, student and age-group parts, gone from the KPI answer (README.md).
 const KPI_GONE = ['totals.levelUps', 'totals.players', 'totals.students', 'daily[].students', 'daily[].guestMinutes', 'games[].students',

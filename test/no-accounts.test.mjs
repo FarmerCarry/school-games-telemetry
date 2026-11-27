@@ -142,7 +142,7 @@ test('an older portal\'s batch is accepted, v3 and v2, and nothing of its studen
   assert.equal((await one(db, 'SELECT COUNT(*) AS n FROM st_rounds')).n, 12);
   assert.deepEqual(await leftovers(db), NONE);
   assert.deepEqual((await all(db, 'SELECT DISTINCT kind FROM st_marks ORDER BY kind')).map(r => r.kind), ['ct', 'fv', 'tu']);
-  assert.deepEqual(await tables(db), ['batches', 'kpi_cache', 'live', 'meta', 'r_day', 'r_device_day', 'r_game_day', 'r_level_day', 'r_pc_day', 'r_source_day',
+  assert.deepEqual(await tables(db), ['batches', 'kpi_cache', 'live', 'meta', 'r_day', 'r_device_day', 'r_game_day', 'r_level_day', 'r_pc_day', 'r_pc_game_day', 'r_source_day',
     'r_stat', 'roll_days', 'settings', 'st_marks', 'st_pcs', 'st_rounds', 'st_sessions', 'st_visits', 'usage']);
   // Nowhere in the database, its files included: not the student's code, nor its older code, nor the removed profile's.
   clock.now = now + DAY_MS + 2 * 3600000;
@@ -155,7 +155,7 @@ test('an older portal\'s batch is accepted, v3 and v2, and nothing of its studen
   const bytes = fs.readFileSync(path.join(tmp, 'accepted.db'));
   for (const secret of ['3f9a0c51e2b7', '1b2c3d4e5f60', '5e6f7a8b9c0d', 'SENTINEL-AGE']) assert.equal(bytes.indexOf(secret), -1, secret);
   // The health check says what this server is.
-  assert.deepEqual(await (await fetch(base + '/v1/health')).json(), { ok: true, accepts: [2, 3], schema: 5 });
+  assert.deepEqual(await (await fetch(base + '/v1/health')).json(), { ok: true, accepts: [2, 3], schema: SCHEMA_VERSION });
 });
 
 test('the routes of students, a student, cohorts, forget and link answer 404; the export has no student, band or profile column', async t => {
@@ -354,14 +354,15 @@ function fromGit(commit) {
 const schema4Dir = fromGit(SCHEMA_4);
 const skip4 = !schema4Dir && `commit ${SCHEMA_4.slice(0, 7)} (the schema 4 server) is not in this checkout`;
 
-test('the upgrade of a database the schema 4 server wrote (students, links, removed profiles, bands, per-student rollups, kept answers) gives what schema 5 would have stored', { skip: skip4 }, async () => {
+test('the upgrade of a database the schema 4 server wrote (students, links, removed profiles, bands, per-student rollups, kept answers) gives what schema 5 would have stored', { skip: skip4 }, async t => {
   const old = await import(pathToFileURL(path.join(schema4Dir, 'store.mjs')).href);
   const oldSchema = await import(pathToFileURL(path.join(schema4Dir, 'schema.mjs')).href);
   const oldSimulate = await import(pathToFileURL(path.join(schema4Dir, 'simulate.mjs')).href);
   const now = Date.parse('2026-10-22T09:30:00Z'), at = now + 2 * DAY_MS, file = path.join(tmp, 'live.db');
   // The same batches (schema 4's school: student codes, age bands, profiles, older codes, removed profiles, level-ups)
-  // into schema 4's store and into a new schema 5 one, each day rolled the next night by each store's own cron.
+  // into schema 4's store and into a new schema 6 one, each day rolled the next night by each store's own cron.
   const db4 = openDatabase(file), store4 = old.openStore(db4), db5 = openDatabase(':memory:'), store5 = openStore(db5);
+  t.after(() => { try { db4.close(); } catch {} try { db5.close(); } catch {} });
   for (const day of oldSimulate.schoolDays({ days: 10, sessions: 70, seed: 6, now })) {
     for (const { batch, now: time } of day.batches) {
       assert.equal(await store4.ingest(oldSchema.validateBatch(batch), time), await store5.ingest(validateBatch(batch), time));
@@ -402,23 +403,40 @@ test('the upgrade of a database the schema 4 server wrote (students, links, remo
     for (const g of copy.kpis.games) { delete g.wallMinutes; delete g.actionsPerMinute; }
     return copy;
   };
+  // Before the background schema-6 recount fills the new additive columns and re-classifies visitlen,
+  // schema 4's existing rollup rows still hold default 0s for schema-6 fields.
+  const preRecount = answer => {
+    const copy = rounded(answer);
+    for (const g of copy.kpis.games) { delete g.organic; delete g.trend; delete g.replay.pcRepeatOpens; }
+    for (const s of copy.kpis.sources) { delete s.avgSec; delete s.bounce25Rate; }
+    for (const [k, v] of Object.entries(copy)) {
+      if (k.startsWith('game ')) v.stats.rows = v.stats.rows.filter(r => r[0] !== 'visitlen');
+    }
+    return copy;
+  };
 
   // The deploy: one request upgrades, inside D1's limits.
   const step = await upgrade(db4, at + MIN);
   assert.ok(step.prepared <= 45, `the upgrade took ${step.prepared} statements`);
   assert.ok(step.written < 500, `the upgrade wrote ${step.written} rows`);
-  assert.deepEqual(rounded(await answers(openStore(db4), '2026-10-01', '2026-10-24', at + MIN)), rounded(said), 'the answers before the clearing');
-  // Then the cron.
+  assert.deepEqual(preRecount(await answers(openStore(db4), '2026-10-01', '2026-10-24', at + MIN)), preRecount(said), 'the answers before the clearing');
+  // Then the cron (recount of schema-6 columns + clearing of schema-4 data).
+  // Respecting the daily write guard, clearing spans into the next UTC day, where the cron also rolls `at`'s day (2026-10-24);
+  // roll store5 to the same point so both databases hold the exact same rolled days.
   const runs = await clearAll(db4, at + 5 * MIN);
   for (const run of runs) assert.ok(run.statements <= 35 && run.written <= 25000, JSON.stringify(run));
   assert.deepEqual(await leftovers(db4), NONE);
+  for (let i = 0; i < 20 && (await store5.rollupStep(at + DAY_MS + i * 300000)).rolled; i++);
+  const expectedAfter = await kept(db5), saidAfter = await answers(store5, '2026-10-01', '2026-10-24', at + DAY_MS);
   const got = await kept(db4);
-  got.r_game_day = wall(got.r_game_day, expected.r_game_day);
-  expected.r_game_day = expected.r_game_day.map(row => ({ ...row, wall_s: null }));
-  for (const table of Object.keys(expected)) assert.deepEqual(got[table], expected[table], 'every fact and rollup row as schema 5 stores the same batches: ' + table);
-  assert.deepEqual(rounded(await answers(openStore(db4), '2026-10-01', '2026-10-24', at + DAY_MS)), rounded(said));
+  got.r_game_day = wall(got.r_game_day, expectedAfter.r_game_day);
+  expectedAfter.r_game_day = expectedAfter.r_game_day.map(row => ({ ...row, wall_s: null }));
+  // Recount updates roll_days.rolled_s to the recount timestamp; day and dirty match identically.
+  got.roll_days = got.roll_days.map(({ day, dirty }) => ({ day, dirty }));
+  expectedAfter.roll_days = expectedAfter.roll_days.map(({ day, dirty }) => ({ day, dirty }));
+  for (const table of Object.keys(expectedAfter)) assert.deepEqual(got[table], expectedAfter[table], 'every fact and rollup row as schema 6 stores the same batches: ' + table);
+  assert.deepEqual(rounded(await answers(openStore(db4), '2026-10-01', '2026-10-24', at + DAY_MS)), rounded(saidAfter));
   db4.compact();
   const bytes = fs.readFileSync(file);
   assert.deepEqual(codes.filter(u => bytes.indexOf(u) >= 0), [], 'no student code is left in the file');
-  db4.close();
 });

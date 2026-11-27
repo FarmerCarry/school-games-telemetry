@@ -27,6 +27,7 @@
       var rows = ctx.failed(data.stats) ? [] : R.statRows(data.stats);
       var box = h('div', { class: 'card insights-card', id: 'games-insights' }, sec);
       ctx.sentences(box, I.researchInsights(gameFacts(ctx, rows), { lang: ctx.lang(), name: ctx.gameName, weekday: ctx.weekdayName }));
+      scorecard(ctx, view, k);
       var tools = h('div', { class: 'list-tools' }, sec);
       var by = ctx.choice(tools, 'gamesBy', [{ value: 'minutes', text: T.byMinutes }, { value: 'opens', text: T.byOpens }, { value: 'name', text: T.byName }], 'minutes', T.sortBy);
       var value = { minutes: function (g) { return g.engagedMinutes || 0; }, opens: function (g) { return g.opens || 0; } };
@@ -53,6 +54,71 @@
       reaction(ctx, view, k);
     }
   };
+
+  // Quality scorecard: sortable table of organic (non-Surprise) avg play time, bounce <25s,
+  // stay >=2m, smooth motion, load time and opens so weak games jump out immediately.
+  function scorecard(ctx, parent, k) {
+    var T = ctx.t(), h = ctx.h, I = ctx.I;
+    var rows = I.scorecard(k).rows;
+    if (!rows.length) return;
+    var sec = ctx.section(parent, 'games-scorecard', T.scorecardTitle, T.scorecardSub);
+    var box = h('div', { class: 'card', id: 'scorecard-card' }, sec);
+    var tools = h('div', { class: 'scorecard-tools' }, box);
+    var by = ctx.choice(tools, 'scorecardBy', [
+      { value: 'orgAvg', text: T.byOrgAvg }, { value: 'bounce25', text: T.byBounce25 },
+      { value: 'stay2m', text: T.byStay2m }, { value: 'smooth', text: T.bySmooth }, { value: 'opens', text: T.byOpens }
+    ], 'orgAvg', T.sortBy);
+    var order = ctx.choice(tools, 'scorecardOrder', [
+      { value: 'weak', text: T.orderWeakest }, { value: 'strong', text: T.orderStrongest }
+    ], 'weak', T.orderLabel);
+    var metric = {
+      orgAvg: function (r) { return r.orgAvgSec; }, bounce25: function (r) { return r.bounce25; },
+      stay2m: function (r) { return r.stay2m; }, smooth: function (r) { return r.smooth; }, opens: function (r) { return r.opens; }
+    }[by];
+    // For bounce <25s higher is weaker; for every other metric lower is weaker.
+    var desc = by === 'bounce25' ? order === 'weak' : order === 'strong';
+    rows = rows.slice().sort(function (a, b) {
+      var va = metric(a), vb = metric(b);
+      if (va == null && vb == null) return b.opens - a.opens || (a.slug < b.slug ? -1 : 1);
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      if (va !== vb) return desc ? vb - va : va - vb;
+      return b.opens - a.opens || (a.slug < b.slug ? -1 : 1);
+    });
+    var wrap = h('div', { class: 'table-wrap' }, box);
+    var table = h('table', { class: 'data scorecard' }, wrap);
+    h('caption', { class: 'sr-only' }, table, T.scorecardTitle);
+    var labels = [T.game, T.opens, T.orgAvgCol, T.bounce25Col, T.stay2mCol, T.smooth, T.loadTime, T.lookAt];
+    var hr = h('tr', null, h('thead', null, table));
+    labels.forEach(function (label, i) { h('th', { scope: 'col', class: i && i < 7 ? 'num' : null }, hr, label); });
+    var body = h('tbody', null, table);
+    ctx.top('scorecard', rows, 15).forEach(function (r) {
+      var tr = h('tr', { 'data-slug': r.slug }, body);
+      var th = h('th', { scope: 'row' }, tr);
+      ctx.link(th, '#/game/' + encodeURIComponent(r.slug), ctx.gameName(r.slug), 'game-link');
+      var cells = [
+        [I.int(r.opens), false, ''],
+        [r.orgAvgSec == null ? '—' : T.secondsValue(I.short(r.orgAvgSec)), r.flags.indexOf('shortPlay') >= 0, T.scorecardFlag.shortPlay],
+        [I.pct(r.bounce25), r.flags.indexOf('highBounce') >= 0, T.scorecardFlag.highBounce],
+        [I.pct(r.stay2m), false, ''],
+        [I.pct(r.smooth), r.flags.indexOf('choppy') >= 0, T.scorecardFlag.choppy],
+        [ctx.secondsText(r.loadMs), r.flags.indexOf('slowLoad') >= 0, T.scorecardFlag.slowLoad]
+      ];
+      cells.forEach(function (cell, i) {
+        var td = h('td', { class: 'num' + (cell[1] ? ' is-flagged' : ''), 'data-label': labels[i + 1] }, tr);
+        if (cell[1]) { h('span', { class: 'flag-dot', 'aria-hidden': 'true' }, td); td.title = cell[2]; }
+        h('span', null, td, cell[0]);
+      });
+      var flags = h('td', { class: 'flags' }, tr);
+      if (!r.flags.length) h('span', { class: 'flag-ok' }, flags, T.noProblem);
+      r.flags.forEach(function (f) {
+        var chip = ctx.flagChip(flags, T.scorecardFlag[f] || f);
+        if (f === 'regression') chip.classList.add('is-critical');
+      });
+    });
+    var foot = h('div', { class: 'card-foot' }, box);
+    ctx.moreButton(foot, 'scorecard', rows.length, null, 15);
+  }
 
   // The facts the Games sentences are built from (insights.js researchInsights).
   function gameFacts(ctx, rows) {
@@ -145,6 +211,12 @@
     ctx.tile(box, 'sessions', T.tileSessions, I.int(g.sessions || 0), '', T.gameSessionsHint, g.sessions || 0);
     var perVisit = has(g.avgEngagedSecPerOpen) ? g.avgEngagedSecPerOpen / 60 : null;
     ctx.tile(box, 'perVisit', T.minutesPerVisit, perVisit == null ? '—' : I.short(perVisit), perVisit == null ? '' : T.minutesUnit, T.minutesPerVisitHint, perVisit);
+    if (g.organic && has(g.organic.avgSec)) {
+      ctx.tile(box, 'orgAvg', T.orgAvgCol, I.short(g.organic.avgSec), T.secondsUnit, T.orgAvgHint, g.organic.avgSec);
+    }
+    if (g.organic && has(g.organic.stay2mRate)) {
+      ctx.tile(box, 'stay2m', T.stay2mCol, I.pct(g.organic.stay2mRate), '', T.stay2mHint, g.organic.stay2mRate);
+    }
     // Opened before: the opens on a browser that had opened the game before.
     var back = I.returning({ games: [g] }, 1).rows[0];
     ctx.tile(box, 'cameBack', T.cameBack, back ? I.pct(back.share) : '—', '', T.cameBackHint, back ? back.share : null);

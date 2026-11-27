@@ -136,7 +136,7 @@ test('health answers which wire versions and schema this server takes, without t
   db.batch = statements => { used++; return batch(statements); };
   const health = await s.send('GET', '/v1/health');
   assert.equal(health.status, 200);
-  assert.deepEqual(health.json(), { ok: true, accepts: [2, 3], schema: 5 });
+  assert.deepEqual(health.json(), { ok: true, accepts: [2, 3], schema: SCHEMA_VERSION });
   assert.match(health.headers['content-type'], /^application\/json/);
   assert.equal((await s.send('HEAD', '/v1/health')).status, 200);
   assert.equal(used, 0, 'no query');
@@ -594,13 +594,14 @@ const COLUMNS = {
   r_day: ['day', 'a', ...AGG_DAYS, 'v2_sessions', 'clock_r', 'unclosed', 'unended', 'duo', 'hearts_on', 'hearts_off', 'timer_sessions',
     'why_u', 'why_p', 'why_h', 'why_i', ...AGG_DAYS_CLEARED, 'students', 'new_students', 'guest_sessions', 'linked_ms'],
   r_game_day: ['day', 'a', 'slug', ...AGG_GAMES, 'wall_s', 'inputs', 'idle', 'pauses', 'rt_sum', 'rt_n', 'dda_sum', 'dda_n', 'score_sum',
-    'score_n', 'score_max', 'unended', 'duo', 'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'fav_opens', 'students'],
+    'score_n', 'score_max', 'unended', 'duo', 'hearts_on', 'hearts_off', 'tu_start', 'tu_done', 'fav_opens', 'org_opens', 'org_engaged_ms', 'org_b25', 'org_s2m', 'students'],
   r_level_day: ['day', 'a', 'slug', 'id', ...AGG_LEVELS, 'unended', 'hits', 'misses', 'score_sum', 'score_n', 'score_max', 'wall_ms', 'dda_sum', 'dda_n',
     'students'],
-  r_source_day: ['day', 'a', 'src', 'sessions', 'opens'],
+  r_source_day: ['day', 'a', 'src', 'sessions', 'opens', 'engaged_ms', 'bounces_25s'],
   r_device_day: ['day', 'a', 'cores', 'mem', 'screen', ...AGG_DEVICES],
   r_pc_day: ['day', 'p', 'k', 'sessions', 'engaged_ms', 'opens', 'loads', 'load_ms', 'load_max', 'errors', 'quits', ...list('f', 4),
     ...list('il', 6), 'busy_s', 'first_s', 'last_s', 'wire', 'students', 'guests', 'np_max', 'new_profiles'],
+  r_pc_game_day: ['day', 'p', 'slug', 'first_opens'],
   r_stat: ['day', 'a', 'metric', 'slug', 'k1', 'k2', 'n', 'w', 'l', 'q', 'ms', 'win_ms', 'hits', 'misses', 'rt_sum', 'rt_n', 'inputs', 'gap_sum', 'gap_n',
     'students', 'd', 'e', 'wall_ms', 'score_sum', 'score_n', 'tier_sum', 'tier_n', 'dda_sum', 'dda_n']
 };
@@ -997,8 +998,9 @@ test('KPIs are exact for a hand-built dataset, and every group is shown with its
         rt: [10, 11, 9, 5, 2, 1], il: [70, 20, 7, 5, 0, 0],
         frames: { counts: [1400, 280, 105, 15], smoothShare: 0.7778, stallShare: 0.0083 },
         loads: 3, avgLoadMs: 1000, errors: { t: 0, x: 0, l: 0 }, sources: { featured: 2, recent: 1 },
-        replay: { replayIndex: [4, 1, 0, 0, 0, 0], playsBefore: [1, 1, 1, 0, 0] },
-        ...NO_EXTRAS, avgScore: 112.5
+        replay: { replayIndex: [4, 1, 0, 0, 0, 0], playsBefore: [1, 1, 1, 0, 0], pcRepeatOpens: 0 },
+        ...NO_EXTRAS, avgScore: 112.5,
+        organic: { opens: 3, engagedMinutes: 2.3, avgSec: 46.7, bounce25Rate: 0, stay2mRate: 0 }, trend: null
       },
       // Two sessions on two days: shown in full.
       {
@@ -1007,7 +1009,8 @@ test('KPIs are exact for a hand-built dataset, and every group is shown with its
         completionRate: null, winRate: null, dropOffRate: null, avgTier: null, hits: 0, misses: 0, accuracy: null,
         rt: z6, il: [10, 0, 0, 0, 0, 0], frames: { counts: [500, 0, 0, 0], smoothShare: 1, stallShare: 0 },
         loads: 0, avgLoadMs: null, errors: { t: 1, x: 0, l: 0 }, sources: { featured: 1, catalog: 1 },
-        replay: { replayIndex: z6, playsBefore: [1, 0, 0, 0, 1] }, ...NO_EXTRAS, avgScore: null
+        replay: { replayIndex: z6, playsBefore: [1, 0, 0, 0, 1], pcRepeatOpens: 0 }, ...NO_EXTRAS, avgScore: null,
+        organic: { opens: 2, engagedMinutes: 0.5, avgSec: 15, bounce25Rate: 0.5, stay2mRate: 0 }, trend: null
       }
     ],
     levels: [
@@ -1016,7 +1019,11 @@ test('KPIs are exact for a hand-built dataset, and every group is shown with its
       { slug: 'road-hopper', id: 'L2', sessions: 1, starts: 1, ends: 1, codes: { w: 0, l: 1, d: 0, e: 0, q: 0 },
         completionRate: 0, winRate: 0, dropOffRate: 0, avgMs: 29000, avgTier: 2, avgScore: 80, unended: 0 }
     ],
-    sources: [{ src: 'featured', sessions: 3, opens: 3 }, { src: 'catalog', sessions: 1, opens: 1 }, { src: 'recent', sessions: 1, opens: 1 }],
+    sources: [
+      { src: 'featured', sessions: 3, opens: 3, avgSec: 31.3, bounce25Rate: 0.3333 },
+      { src: 'catalog', sessions: 1, opens: 1, avgSec: 30, bounce25Rate: 0 },
+      { src: 'recent', sessions: 1, opens: 1, avgSec: 46, bounce25Rate: 0 }
+    ],
     devices: {
       cores: [
         { value: 4, sessions: 3, frames: { counts: [1900, 280, 105, 15], smoothShare: 0.8261, stallShare: 0.0065 },
@@ -1705,7 +1712,7 @@ test('the storage guard removes the round details of the oldest 30 days of facts
   assert.deepEqual(days.filter(r => r.dirty !== (r.day >= '2026-03-06' ? 2 : 0)), []);
 });
 
-test('the store creates schema 5, upgrades schema 2 and 3 one step at a time keeping the frozen totals (their age bands cleared), and refuses a newer one', async t => {
+test('the store creates schema 6, upgrades schema 2, 3, and 5 non-destructively keeping all rows, and refuses a newer one', async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'school-games-telemetry-schema-'));
   let first, upgraded, two, newer;
   t.after(async () => {
@@ -1717,28 +1724,28 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   });
   const names = async db => (await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all()).results.map(r => r.name);
   const settings = async db => Object.fromEntries((await db.prepare('SELECT key, value FROM settings').all()).results.map(r => [r.key, r.value]));
-  const v5 = ['batches', 'kpi_cache', 'live', 'meta', 'r_day', 'r_device_day', 'r_game_day', 'r_level_day', 'r_pc_day', 'r_source_day',
+  const v6 = ['batches', 'kpi_cache', 'live', 'meta', 'r_day', 'r_device_day', 'r_game_day', 'r_level_day', 'r_pc_day', 'r_pc_game_day', 'r_source_day',
     'r_stat', 'roll_days', 'settings', 'st_marks', 'st_pcs', 'st_rounds', 'st_sessions', 'st_visits', 'usage'];
-  // A new database: schema 5 at once, without the aggregates, with nothing to clear.
+  // A new database: schema 6 at once, without the aggregates, with nothing to clear.
   const fresh = path.join(dir, 'fresh.db');
   first = createApp({ dbPath: fresh, now: () => START });
   await first.listen(0, '127.0.0.1');
-  assert.deepEqual(await names(first.store.db), v5);
-  assert.deepEqual((await first.store.db.prepare('SELECT * FROM meta').all()).results, [{ key: 'schema', value: 5 }]);
+  assert.deepEqual(await names(first.store.db), v6);
+  assert.deepEqual((await first.store.db.prepare('SELECT * FROM meta').all()).results, [{ key: 'schema', value: SCHEMA_VERSION }]);
   assert.deepEqual(await settings(first.store.db), { tz: 'UTC', tz_source: 'none', tz_epoch: '0', week_start: 'mon', week_source: 'auto', keep_days: '',
     facts_since: '2026-10-20', legacy_until: '', v3_since: '', rv: '2', rolled_through: '', trimmed_before: '', rebuild: '', trimmed_size: '', trim_to: '',
     scrub: '', scrub_id: '0', scrub_end: '0', scrub_day: '' }, 'rv went up with the purge at start');
   await first.close();
   first = null;
 
-  // Milestone 2's schema 3 with a day of totals in two age bands: one step to 5; the totals stay, the bands added up.
+  // Milestone 2's schema 3 with a day of totals in two age bands: one step to 6; the totals stay, the bands added up.
   const m2 = path.join(dir, 'm2.db');
   await milestone2(m2, [['agg_days', { day: '2026-10-20', a: '6-7', sessions: 3, web: 3, opens: 5, engaged_ms: 120000, new_profiles: 1, level_ups: 2 }],
     ['agg_days', { day: '2026-10-20', a: '8-9', sessions: 1, web: 1, opens: 2, engaged_ms: 60000, guests: 1 }],
     ['agg_games', { day: '2026-10-20', a: '6-7', slug: 'road-hopper', sessions: 3, opens: 5 }]]);
   upgraded = createApp({ dbPath: m2, now: () => START, adminToken: TOKEN, allowedOrigins: [ORIGIN] });
   const { port } = await upgraded.listen(0, '127.0.0.1');
-  assert.deepEqual(await names(upgraded.store.db), [...v5, ...Object.keys(TABLES)].sort());
+  assert.deepEqual(await names(upgraded.store.db), [...v6, ...Object.keys(TABLES)].sort());
   // The cron at start cleared the frozen days; its next run finds nothing left to clear.
   assert.deepEqual(pick(await settings(upgraded.store.db), ['facts_since', 'legacy_until', 'tz', 'scrub', 'scrub_day']),
     { facts_since: '2026-10-20', legacy_until: '2026-10-20', tz: 'UTC', scrub: '1', scrub_day: '2026-10-20' });
@@ -1760,7 +1767,7 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   await upgraded.close();
   upgraded = null;
 
-  // Schema 2 (milestone 2 before kpi_cache): to 3, then to 5, at start.
+  // Schema 2 (milestone 2 before kpi_cache): to 3, then to 6, at start.
   const older = path.join(dir, 'older.db');
   await milestone2(older);
   let db = openDatabase(older);
@@ -1768,7 +1775,7 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   db.close();
   two = openStore(openDatabase(older));
   assert.deepEqual([await two.setup(START), await two.setup(START), await two.setup(START)], ['migrated', 'migrated', 'ready']);
-  assert.deepEqual(await names(two.db), [...v5, ...Object.keys(TABLES)].sort());
+  assert.deepEqual(await names(two.db), [...v6, ...Object.keys(TABLES)].sort());
   two.close();
   two = null;
 
@@ -1778,6 +1785,133 @@ test('the store creates schema 5, upgrades schema 2 and 3 one step at a time kee
   db.close();
   newer = createApp({ dbPath: fresh });
   await assert.rejects(newer.listen(0, '127.0.0.1'), new RegExp(`database schema ${SCHEMA_VERSION + 1} is newer than this server \\(${SCHEMA_VERSION}\\)`));
+});
+
+test('live schema 5 -> schema 6 upgrade is additive (zero row rewrites), preserves all rows, and cron recount backfills organic, source quality, PC repeat opens, and fixed visitlen', async () => {
+  const db = openDatabase(':memory:');
+  const seedStore = openStore(db);
+  // Seed 2 rolled days on one PC: pre-fix plays_b=0 across sessions, organic + surprise visits, and a 3s 'q' visit.
+  const day1 = Date.parse('2026-10-19T09:00:00Z'), day2 = Date.parse('2026-10-20T09:00:00Z');
+  await seedStore.ingest(validateBatch(envelope3('110000000001', [
+    ['ss', 0], ['go', 1, 1, 'road-hopper', 'catalog', 0, 0],
+    ['rs', 2, 1, 1, 'road-hopper', 'L1', 1, 0], ['re', 140, 1, 1, 'road-hopper', 'w', 'L1', 135000, 100, 1, 10, 2, z6, null],
+    ['gx', 142, 1, 'road-hopper', 135000, z6, [500, 0, 0, 0]],
+    ['go', 150, 2, 'road-hopper', 'surprise', 0, 0],
+    ['rs', 151, 2, 1, 'road-hopper', 'L1', 1, 0], ['re', 154, 2, 1, 'road-hopper', 'q', 'L1', 3000, -1, 1, 0, 0, z6, null],
+    ['gx', 155, 2, 'road-hopper', 3000, z6, [100, 0, 0, 0]]
+  ], { p: P, z: '' })), day1);
+  await seedStore.ingest(validateBatch(envelope3('110000000002', [
+    ['ss', 0], ['go', 1, 1, 'road-hopper', 'quick', 0, 0],
+    ['gx', 15, 1, 'road-hopper', 12000, z6, [200, 0, 0, 0]]
+  ], { p: P, z: '' })), day2);
+  // Roll both days.
+  const night = Date.parse('2026-10-21T02:00:00Z');
+  assert.equal((await seedStore.rollupStep(night)).rolled, '2026-10-19');
+  assert.equal((await seedStore.rollupStep(night + 300000)).rolled, '2026-10-20');
+
+  // Rewind the DB to exact schema 5 layout (without schema 6's additive columns or r_pc_game_day, and with old buggy visitlen k2='1' for the 3s 'q').
+  const s5GameCols = COLUMNS.r_game_day.filter(c => !['org_opens', 'org_engaged_ms', 'org_b25', 'org_s2m'].includes(c));
+  const s5SrcCols = COLUMNS.r_source_day.filter(c => !['engaged_ms', 'bounces_25s'].includes(c));
+  await db.batch([
+    db.prepare(`CREATE TABLE r_game_day_5 AS SELECT ${s5GameCols.join(', ')} FROM r_game_day`),
+    db.prepare('DROP TABLE r_game_day'),
+    db.prepare(`CREATE TABLE r_game_day (day TEXT NOT NULL, a TEXT NOT NULL, slug TEXT NOT NULL, ${s5GameCols.slice(3).map(c => c + ' INTEGER NOT NULL DEFAULT 0').join(', ')}, PRIMARY KEY (day, a, slug)) STRICT, WITHOUT ROWID`),
+    db.prepare(`INSERT INTO r_game_day SELECT ${s5GameCols.join(', ')} FROM r_game_day_5`),
+    db.prepare('DROP TABLE r_game_day_5'),
+    db.prepare(`CREATE TABLE r_source_day_5 AS SELECT ${s5SrcCols.join(', ')} FROM r_source_day`),
+    db.prepare('DROP TABLE r_source_day'),
+    db.prepare(`CREATE TABLE r_source_day (day TEXT NOT NULL, a TEXT NOT NULL, src TEXT NOT NULL, sessions INTEGER NOT NULL DEFAULT 0, opens INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, a, src)) STRICT, WITHOUT ROWID`),
+    db.prepare(`INSERT INTO r_source_day SELECT ${s5SrcCols.join(', ')} FROM r_source_day_5`),
+    db.prepare('DROP TABLE r_source_day_5'),
+    db.prepare('DROP TABLE r_pc_game_day'),
+    db.prepare("UPDATE r_stat SET k2 = '1' WHERE metric = 'visitlen' AND k1 = '0' AND k2 = '0'"),
+    db.prepare("UPDATE meta SET value = 5 WHERE key = 'schema'")
+  ]);
+  const beforeSessions = (await db.prepare('SELECT COUNT(*) AS n FROM st_sessions').first()).n;
+  const beforeVisits = (await db.prepare('SELECT COUNT(*) AS n FROM st_visits').first()).n;
+
+  // Upgrade schema 5 -> schema 6 in one fast, low-write step.
+  let prepared = 0, written = 0;
+  const origPrepare = db.prepare.bind(db), origBatch = db.batch.bind(db);
+  db.prepare = text => { prepared++; return origPrepare(text); };
+  db.batch = async list => { const res = await origBatch(list); written += res.reduce((n, r) => n + r.meta.rows_written, 0); return res; };
+  const upgraded = openStore(db);
+  assert.equal(await upgraded.setup(night + 600000), 'migrated');
+  assert.ok(prepared <= 20, `schema 5->6 took ${prepared} statements`);
+  assert.ok(written < 50, `schema 5->6 wrote ${written} rows (metadata-only ALTERs, zero table rewrite)`);
+  assert.equal(await upgraded.setup(night + 600000), 'ready');
+  db.prepare = origPrepare;
+  db.batch = origBatch;
+
+  // Existing rows 100% preserved, rolled days marked dirty=3 for background recount.
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM st_sessions').first()).n, beforeSessions);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM st_visits').first()).n, beforeVisits);
+  assert.deepEqual((await db.prepare('SELECT day, dirty FROM roll_days ORDER BY day').all()).results, [
+    { day: '2026-10-19', dirty: 3 }, { day: '2026-10-20', dirty: 3 }
+  ]);
+
+  // Run cron recounts for both days.
+  assert.deepEqual(pick(await upgraded.rollupStep(night + 900000), ['rolled', 'kind']), { rolled: '2026-10-20', kind: 'recount' });
+  assert.deepEqual(pick(await upgraded.rollupStep(night + 1200000), ['rolled', 'kind']), { rolled: '2026-10-19', kind: 'recount' });
+  assert.deepEqual((await db.prepare('SELECT day, dirty FROM roll_days ORDER BY day').all()).results, [
+    { day: '2026-10-19', dirty: 0 }, { day: '2026-10-20', dirty: 0 }
+  ]);
+
+  // Verify backfilled KPIs: organic excludes surprise (2 opens: 135s + 12s => avg 73.5s, 50% bounce<25s, 50% stay>=2m),
+  // PC repeats recover 2 returning opens from 3 pre-fix plays_b=0 opens on the same PC, and sources show surprise=3s vs catalog=135s.
+  const kpis = await upgraded.kpis({ from: '2026-10-19', to: '2026-10-20' }, night + 1500000);
+  const rh = kpis.games.find(g => g.slug === 'road-hopper');
+  assert.deepEqual(rh.organic, { opens: 2, engagedMinutes: 2.5, avgSec: 73.5, bounce25Rate: 0.5, stay2mRate: 0.5 });
+  assert.equal(rh.replay.pcRepeatOpens, 2, '3 plays_b=0 opens on same PC => 2 cross-session repeat opens');
+  assert.deepEqual(kpis.sources.map(x => [x.src, x.avgSec, x.bounce25Rate]), [
+    ['catalog', 135, 0], ['quick', 12, 1], ['surprise', 3, 1]
+  ]);
+  // Verify visitlen bug was fixed by recount: the 3s 'q' visit moved back to k2='0'.
+  const gameView = await upgraded.game({ slug: 'road-hopper', from: '2026-10-19', to: '2026-10-20' }, night + 1500000);
+  const vl = gameView.stats.rows.filter(r => r[0] === 'visitlen').map(r => [r[1], r[2], r[3]]).sort();
+  assert.deepEqual(vl, [['0', '0', 1], ['10', '0', 1], ['120', '1', 1]]);
+  db.close();
+});
+
+test('KPIs compute 7d-vs-21d organic trend windows and cross-session PC repeat opens without double-counting plays_b > 0, identically before and after rollup', async () => {
+  const db = openDatabase(':memory:');
+  const base = Date.parse('2026-10-01T09:00:00Z');
+  const store = openStore(db);
+  // Prior window (Oct 5, 10 opens on PC P with plays_b=0, avg 180s) vs recent window (Oct 25, 10 opens on PC P with plays_b=1, avg 30s).
+  // Plus a surprise visit on Oct 25 (5s) that must NOT affect organic or trend metrics.
+  for (let i = 0; i < 10; i++) {
+    await store.ingest(validateBatch(envelope3('aa000000' + String(i).padStart(4, '0'), [
+      ['ss', 0], ['go', 1, 1, 'road-hopper', 'catalog', 0, 0],
+      ['gx', 181, 1, 'road-hopper', 180000, z6, [500, 0, 0, 0]]
+    ], { p: P, z: '' })), base + 4 * DAY_MS + i * 60000);
+  }
+  for (let i = 0; i < 10; i++) {
+    await store.ingest(validateBatch(envelope3('bb000000' + String(i).padStart(4, '0'), [
+      ['ss', 0], ['go', 1, 1, 'road-hopper', 'catalog', 2, 0],
+      ['gx', 31, 1, 'road-hopper', 30000, z6, [500, 0, 0, 0]],
+      ...(i === 0 ? [['go', 35, 2, 'road-hopper', 'surprise', 0, 0], ['gx', 40, 2, 'road-hopper', 5000, z6, [100, 0, 0, 0]]] : [])
+    ], { p: P, z: '' })), base + 24 * DAY_MS + i * 60000);
+  }
+  const query = { from: '2026-10-01', to: '2026-10-28' };
+  const queryAt = Date.parse('2026-10-28T12:00:00Z');
+  const before = await store.kpis(query, queryAt);
+  const rh = before.games.find(g => g.slug === 'road-hopper');
+  assert.deepEqual(rh.trend, {
+    recent: { opens: 10, avgSec: 30, bounce25Rate: 0 },
+    prior: { opens: 10, avgSec: 180, bounce25Rate: 0 }
+  });
+  // 10 plays_b=0 opens on Oct 5 + 1 plays_b=0 surprise open on Oct 25 = 11 plays_b=0 opens on PC P => 10 pcRepeatOpens.
+  // The 10 plays_b=2 opens on Oct 25 are already counted in playsBefore[1..4], NOT in r_pc_game_day.
+  assert.equal(rh.replay.playsBefore[0], 11);
+  assert.equal(rh.replay.pcRepeatOpens, 10);
+  assert.deepEqual(rh.organic, { opens: 20, engagedMinutes: 35, avgSec: 105, bounce25Rate: 0, stay2mRate: 0.5 });
+
+  // Roll up through Oct 27 (leaving Oct 28 open) and confirm identical numbers across rolled + open boundary.
+  const rollAt = Date.parse('2026-10-28T02:00:00Z');
+  for (let i = 0; i < 40 && (await store.rollupStep(rollAt + i * 1000)).rolled; i++);
+  const after = await store.kpis(query, queryAt);
+  assert.deepEqual({ ...after, clock: null }, { ...before, clock: null });
+  db.close();
 });
 
 test('main.mjs starts from the environment without the SQLite warning and refuses bad settings', async t => {

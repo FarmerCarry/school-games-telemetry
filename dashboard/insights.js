@@ -64,9 +64,9 @@
     FAIL_MIN_OPENS: 20,
     FAIL_MIN: 3,               // at least 3 failed starts ...
     FAIL_RATE: 0.03,           // ... and 3 in every 100 opens
-    SLOW_LOAD_MS: 3000,
+    SLOW_LOAD_MS: 400,
     SLOW_LOAD_MIN: 10,         // loads measured
-    CHOPPY_SMOOTH: 0.80,       // under 80 % smooth picture updates
+    CHOPPY_SMOOTH: 0.90,       // under 90 % smooth picture updates
     SLOW_INPUT: 0.10,          // 10 % of clicks and key presses answered in 50 ms or more
     DEVICE_MIN_SESSIONS: 10,
     DEVICE_SMOOTH: 0.85,       // a PC type under 85 % smooth motion ...
@@ -74,10 +74,13 @@
     TREND_DAYS: 7,
     TREND_MIN: 20,             // play sessions in the earlier week
     TREND_CHANGE: 0.10,
+    REGRESS_MIN_OPENS: 10,     // organic opens in both recent 7d and prior window
+    REGRESS_AVG_DROP: 0.35,    // >= 35 % drop in recent 7d avg play time vs prior
+    REGRESS_BOUNCE_JUMP: 0.20, // >= +20 pp jump in bounce <25s vs prior
     HEARTS_MIN: 3,             // net hearts before a game is called the most hearted
     SMALL_TRIES: 20            // fewer tries than this carries the small-sample chip
   });
-  const KIND_ORDER = ['stuck', 'hard', 'favourite', 'health', 'returning', 'trend', 'easy', 'hearts'];
+  const KIND_ORDER = ['regression', 'stuck', 'hard', 'favourite', 'health', 'returning', 'trend', 'easy', 'hearts'];
   const MAX_INSIGHTS = 5;
   const VERDICT_RANK = { hard: 0, easy: 1, right: 2, few: 3, none: 4, missing: 5 };
   // An early sign sorts after the firm verdict of the same kind.
@@ -300,18 +303,80 @@
     return { rows, byCompletion: rows.some(r => r.verdict.basis === 'completion') };
   }
 
-  // Coming back: the share of a game's opens by children who had opened it before.
+  // Coming back: the share of a game's opens on a PC where it had been opened before.
+  // Combines client playsBefore (>0) with server-derived cross-session PC repeat opens on
+  // historical pre-fix visits where playsBefore was reported as 0.
   function returning(kpis, minOpens) {
     const min = minOpens == null ? 1 : minOpens;
     let all = 0, back = 0;
     const rows = list(kpis && kpis.games).filter(shown).map(g => {
       const pb = list(g.replay && g.replay.playsBefore);
       const total = sum(pb), first = num(pb[0]) || 0;
-      all += total; back += total - first;
-      return { slug: g.slug, opens: total, back: total - first, share: total ? (total - first) / total : null, buckets: pb.slice() };
+      const pcExtra = Math.min(first, Math.max(0, num(g.replay && g.replay.pcRepeatOpens) || 0));
+      const ret = total - first + pcExtra;
+      all += total; back += ret;
+      return { slug: g.slug, opens: total, back: ret, share: total ? ret / total : null, buckets: pb.slice() };
     }).filter(r => r.opens >= min && r.share !== null)
       .sort((a, b) => b.share - a.share || b.opens - a.opens || cmp(a.slug, b.slug));
     return { rows, overall: all ? back / all : null, opens: all, back };
+  }
+
+  // Automated 7d-vs-21d regression detector over organic (non-Surprise) play: flags any game
+  // whose recent 7d avg time drops >= 35% or whose bounce <25s jumps >= +20pp vs the prior window.
+  function regressions(kpis) {
+    const rows = [];
+    for (const g of list(kpis && kpis.games).filter(shown)) {
+      const tr = g.trend, rec = tr && tr.recent, pri = tr && tr.prior;
+      if (!rec || !pri) continue;
+      const recOpens = num(rec.opens) || 0, priOpens = num(pri.opens) || 0;
+      if (recOpens < T.REGRESS_MIN_OPENS || priOpens < T.REGRESS_MIN_OPENS) continue;
+      const recAvg = num(rec.avgSec), priAvg = num(pri.avgSec);
+      const recB25 = num(rec.bounce25Rate), priB25 = num(pri.bounce25Rate);
+      const avgDrop = priAvg && priAvg > 0 && recAvg !== null ? (priAvg - recAvg) / priAvg : null;
+      const bounceJump = recB25 !== null && priB25 !== null ? recB25 - priB25 : null;
+      const dropped = avgDrop !== null && shownRate(avgDrop) >= T.REGRESS_AVG_DROP;
+      const jumped = bounceJump !== null && Math.round((shownRate(recB25) - shownRate(priB25)) * 100) >= Math.round(T.REGRESS_BOUNCE_JUMP * 100);
+      if (!dropped && !jumped) continue;
+      rows.push({
+        slug: g.slug, recentOpens: recOpens, priorOpens: priOpens,
+        recentAvgSec: recAvg, priorAvgSec: priAvg, avgDrop,
+        recentBounce25: recB25, priorBounce25: priB25, bounceJump,
+        dropped, jumped, severity: Math.max(dropped ? avgDrop : 0, jumped ? bounceJump : 0)
+      });
+    }
+    rows.sort((a, b) => b.severity - a.severity || (b.avgDrop ?? -1) - (a.avgDrop ?? -1) ||
+      (b.bounceJump ?? -1) - (a.bounceJump ?? -1) || b.recentOpens - a.recentOpens || cmp(a.slug, b.slug));
+    return { rows };
+  }
+
+  // Quality scorecard per game: organic (non-Surprise) avg time, bounce <25s, stay >=2m,
+  // smooth motion, load time, opens, and warning flags.
+  function scorecard(kpis) {
+    const healthBySlug = new Map(pcHealth(kpis).rows.map(r => [r.slug, r]));
+    const regBySlug = new Map(regressions(kpis).rows.map(r => [r.slug, r]));
+    const rows = list(kpis && kpis.games).filter(shown).map(g => {
+      const org = g.organic || {};
+      const orgOpens = num(org.opens) || 0;
+      const orgAvgSec = num(org.avgSec);
+      const bounce25 = num(org.bounce25Rate);
+      const stay2m = num(org.stay2mRate);
+      const h = healthBySlug.get(g.slug) || {};
+      const reg = regBySlug.get(g.slug) || null;
+      const flags = [];
+      if (reg) flags.push('regression');
+      if (orgOpens >= T.REGRESS_MIN_OPENS && bounce25 !== null && shownRate(bounce25) >= 0.50) flags.push('highBounce');
+      if (orgOpens >= T.REGRESS_MIN_OPENS && orgAvgSec !== null && orgAvgSec < 60) flags.push('shortPlay');
+      for (const f of h.flags || []) flags.push(f);
+      return {
+        slug: g.slug, opens: opensOf(g), sessions: num(g.sessions) || 0,
+        orgOpens, orgAvgSec, bounce25, stay2m,
+        smooth: h.smooth !== undefined ? h.smooth : num(g.frames && g.frames.smoothShare),
+        loadMs: h.loadMs !== undefined ? h.loadMs : num(g.avgLoadMs),
+        loads: h.loads !== undefined ? h.loads : (num(g.loads) || 0),
+        regression: reg, flags
+      };
+    });
+    return { rows };
   }
 
   // Input delay: clicks and key presses answered in 50 ms or more (il buckets 4 and 5).
@@ -369,6 +434,34 @@
       if (sample) Object.assign(item, { tries: num(sample.tries), small: small(sample.tries) });
       (out[kind] || (out[kind] = [])).push(item);
     };
+
+    // Regressions: sharp 7d drop in avg play time or spike in quick exits (<25 s) vs prior window.
+    for (const r of regressions(kpis).rows) {
+      const secEn = v => short(v) + ' s', secAr = v => short(v) + ' ث';
+      let text;
+      if (r.dropped && r.jumped) {
+        text = ar
+          ? 'تراجع الإقبال على ' + game(r.slug) + ' بشدّة في آخر 7 أيام: انخفض متوسط اللعب بنسبة ' + pct(r.avgDrop) +
+            ' (' + secAr(r.recentAvgSec) + ' مقابل ' + secAr(r.priorAvgSec) + ')، وارتفع الخروج قبل 25 ثانية إلى ' +
+            pct(r.recentBounce25) + ' (بعد ' + pct(r.priorBounce25) + ').'
+          : nameOf(r.slug) + ' dropped sharply in the last 7 days: average play fell ' + pct(r.avgDrop) +
+            ' (' + secEn(r.recentAvgSec) + ' against ' + secEn(r.priorAvgSec) + ') and quick exits under 25 s rose to ' +
+            pct(r.recentBounce25) + ' (from ' + pct(r.priorBounce25) + ').';
+      } else if (r.dropped) {
+        text = ar
+          ? 'تراجع الإقبال على ' + game(r.slug) + ' بشدّة في آخر 7 أيام: انخفض متوسط اللعب بنسبة ' + pct(r.avgDrop) +
+            ' (' + secAr(r.recentAvgSec) + ' مقابل ' + secAr(r.priorAvgSec) + ').'
+          : nameOf(r.slug) + ' dropped sharply in the last 7 days: average play fell ' + pct(r.avgDrop) +
+            ' (' + secEn(r.recentAvgSec) + ' against ' + secEn(r.priorAvgSec) + ').';
+      } else {
+        text = ar
+          ? 'ارتفع الخروج السريع من ' + game(r.slug) + ' في آخر 7 أيام: بلغت الزيارات الأقل من 25 ثانية ' +
+            pct(r.recentBounce25) + ' (بعد ' + pct(r.priorBounce25) + ').'
+          : nameOf(r.slug) + ' saw many more quick exits in the last 7 days: visits under 25 s rose to ' +
+            pct(r.recentBounce25) + ' (from ' + pct(r.priorBounce25) + ').';
+      }
+      add('regression', r.slug, text);
+    }
 
     // Where children get stuck.
     for (const l of stuckLevels(kpis).rows) {
@@ -606,6 +699,6 @@
     T, KIND_ORDER, shown, small, researchInsights,
     int, decimal, short, pct, duration, seconds, arWord, arTimes, enTimes,
     catalogName, levelLabel, deviceLabel,
-    favourites, stuckLevels, verdict, difficultyGrid, returning, pcHealth, insights
+    favourites, stuckLevels, verdict, difficultyGrid, returning, regressions, scorecard, pcHealth, insights
   });
 }));

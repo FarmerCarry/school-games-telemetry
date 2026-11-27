@@ -118,9 +118,10 @@
       edges.map(function (e) { return [ctx.gameName(e.from), ctx.gameName(e.to), I.int(e.n), e.gap == null ? '—' : T.secondsValue(I.short(e.gap))]; }));
   }
 
-  // How children find games: the share of game opens per launch source.
+  // How children find games: the share of game opens per launch source, with avg play time
+  // and quick-exit (<25 s) rate so low-quality sources like Surprise Me stand out.
   function sources(ctx, parent, k) {
-    var T = ctx.t(), C = ctx.C, I = ctx.I;
+    var T = ctx.t(), C = ctx.C, I = ctx.I, has = ctx.has;
     var sec = ctx.section(parent, 'habits-sources', T.sourcesTitle);
     var c = ctx.card(sec, 'sources-card', null, T.sourcesSub, true);
     var list = (k.sources || []).filter(function (x) { return I.shown(x) && x.opens > 0; }).sort(function (a, b) { return b.opens - a.opens; });
@@ -129,11 +130,21 @@
     else ctx.draw(function () {
       if (c.chart.hidden) return;
       C.barList(c.chart, { name: T.sourcesTitle, rtl: ctx.rtl(), color: 'var(--s1)', max: 1, track: true, rows: list.map(function (x) {
+        var avg = has(x.avgSec) ? I.short(x.avgSec) : null, b25 = has(x.bounce25Rate) ? I.pct(x.bounce25Rate) : null;
+        var tipRows = [{ value: T.nOpens(x.opens) }, { value: ctx.t().nSessions(x.sessions) }];
+        if (avg != null) tipRows.push({ value: T.secondsValue(avg), label: T.avgPlayCol });
+        if (b25 != null) tipRows.push({ value: b25, label: T.bounce25Col });
         return { label: T.source[x.src] || x.src, value: x.opens / all, valueText: I.pct(x.opens / all),
-          tip: { title: T.source[x.src] || x.src, rows: [{ value: T.nOpens(x.opens) }, { value: ctx.t().nSessions(x.sessions) }] } };
+          sub: T.sourceSub(avg, b25) || null,
+          tip: { title: T.source[x.src] || x.src, rows: tipRows } };
       }) });
     });
-    C.table(c.table, T.sourcesTitle, [{ label: T.sourceCol }, { label: T.opens, num: true }, { label: T.shareCol, num: true }, { label: T.playSessions, num: true }],
-      list.map(function (x) { return [T.source[x.src] || x.src, I.int(x.opens), I.pct(x.opens / all), I.int(x.sessions)]; }));
+    C.table(c.table, T.sourcesTitle, [{ label: T.sourceCol }, { label: T.opens, num: true }, { label: T.shareCol, num: true },
+      { label: T.avgPlayCol, num: true }, { label: T.bounce25Col, num: true }, { label: T.playSessions, num: true }],
+      list.map(function (x) {
+        return [T.source[x.src] || x.src, I.int(x.opens), I.pct(x.opens / all),
+          has(x.avgSec) ? T.secondsValue(I.short(x.avgSec)) : '—',
+          has(x.bounce25Rate) ? I.pct(x.bounce25Rate) : '—', I.int(x.sessions)];
+      }));
   }
 }());
