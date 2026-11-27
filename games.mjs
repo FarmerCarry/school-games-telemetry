@@ -6,7 +6,7 @@
 // When a game is added to the site, add its slug here too, in alphabetical order,
 // and run `node dashboard/make-names.mjs` so `dashboard/names.js` stays in sync.
 // Until you do, that game's events are ignored and the rest of the batch is kept.
-// The list is all 52 games in js/catalog.js.
+// The list is all 53 games in js/catalog.js.
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export const GAME_SLUGS = [
@@ -61,7 +61,8 @@ export const GAME_SLUGS = [
   'tunnel-blitz',
   'typing-test',
   'wacky-soccer',
-  'word-garden'
+  'word-garden',
+  'zoom-plus-one'
 ];
 
 const seen = new Set();

@@ -52,7 +52,8 @@ window.SG_GAME_NAMES = {
   "tunnel-blitz": ["نفق السرعة","Tunnel Blitz"],
   "typing-test": ["أصابع البرق","Lightning Fingers"],
   "wacky-soccer": ["كرة القدم المجنونة","Wacky Soccer"],
-  "word-garden": ["حديقة الكلمات","Word Garden Arabic"]
+  "word-garden": ["حديقة الكلمات","Word Garden Arabic"],
+  "zoom-plus-one": ["زوووم +1","Zooom +1"]
 };
 // Each game's categories, the most players at once and its input style (js/catalog.js);
 // dda, track, tutorial: its code adapts the difficulty to each child, counts hits and
@@ -109,7 +110,8 @@ window.SG_GAME_INFO = {
   "tunnel-blitz": {"cats":["running","arcade"],"players":1,"input":"keyboard","dda":0,"track":0,"tutorial":0},
   "typing-test": {"cats":["challenge","arcade"],"players":1,"input":"keyboard","dda":1,"track":1,"tutorial":1},
   "wacky-soccer": {"cats":["sports","two-player"],"players":2,"input":"one-button","dda":0,"track":0,"tutorial":1},
-  "word-garden": {"cats":["puzzle","challenge"],"players":1,"input":"keyboard","dda":1,"track":1,"tutorial":1}
+  "word-garden": {"cats":["puzzle","challenge"],"players":1,"input":"keyboard","dda":1,"track":1,"tutorial":1},
+  "zoom-plus-one": {"cats":["running","arcade"],"players":1,"input":"mixed","dda":1,"track":1,"tutorial":1}
 };
 // Category names: [Arabic, English].
 window.SG_CATEGORIES = {
