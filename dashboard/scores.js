@@ -10,7 +10,7 @@ window.SG_SCORES = {
   'beat-dash': ['المسافة التي قطعها الطفل من المرحلة بالنسبة المئوية (100 عند إنهائها)', 'how far through the level the child got, in % (100 when it is finished)'],
   'blob-battle': ['أكبر حجم بلغه الهلام في الجولة', 'the biggest size the blob reached in the round'],
   'block-burst': ['نقاط الجولة', 'the points of the run'],
-  'block-world': ['نجوم العالم المحفوظ: عدد المهمات المنجزة فيه', 'the stars of the saved world: the quests finished in it'],
+  'block-world': ['نقاط جولة المنجم', 'the points of the mine run'],
   'bonk-garden': ['نقاط الجولة', 'the points of the round'],
   'bubble-bop': ['نجوم المرحلة المنتهية (من 1 إلى 3)، وفي جولات الحفلة النقاط', 'the stars of a finished level (1 to 3); in the party rounds, the points'],
   'cake-guards': ['نجوم المرحلة الرابحة (من 1 إلى 3)، وإلا فعدد الموجات التي صُدّت', 'the stars of a won level (1 to 3); otherwise the waves held back'],
